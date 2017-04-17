@@ -164,12 +164,14 @@ def main():
                         optimizer='adadelta')
 
     # Generator trainer
+    set_trainable(enc, False)
     set_trainable(dis, False)
     y_rand = Input(shape=(num_digits,))
     z_rand = Input(shape=(seed_dims,))
     x_rand = gen([y_rand, z_rand])
     l_rand = dis(x_rand)
-    gen_trainer = Model([y_rand, z_rand], l_rand)
+    l_pred = dis(x_pred)
+    gen_trainer = Model([x_inputs, y_inputs, y_rand, z_rand], [l_pred, l_rand])
     gen_trainer.compile(loss=keras.losses.binary_crossentropy,
                        optimizer='adadelta',
                        metrics=['accuracy'])
@@ -179,8 +181,8 @@ def main():
     set_trainable(dis, True)
     x_data = Input(shape=image_shape)
     l_data = dis(x_data)
-    dis_trainer = Model(inputs=[y_rand, z_rand, x_data],
-                        outputs=[l_rand, l_data])
+    dis_trainer = Model(inputs=[x_inputs, y_inputs, y_rand, z_rand, x_data],
+                        outputs=[l_pred, l_rand, l_data])
     dis_trainer.compile(loss=keras.losses.binary_crossentropy,
                         optimizer='adadelta',
                         metrics=['accuracy'])
@@ -203,18 +205,23 @@ def main():
             y_neg = keras.utils.to_categorical(y_neg, 2)
 
             y_rand_batch = np.zeros((batchsize, num_digits))
-            y_rand_batch[np.arange(batchsize, dtype=np.int32), np.random.randint(0, num_digits, batchsize)] = 1.0
+            y_rand_batch[np.arange(batchsize), np.random.randint(0, num_digits, batchsize)] = 1.0
             z_rand_batch = np.random.normal(size=(batchsize, seed_dims))
 
             x_batch = x_train[indx, :, :, :]
             y_batch = y_train[indx]
 
             vae_loss = vae_trainer.train_on_batch([x_batch, y_batch], x_batch)
-            gen_loss, gen_acc = gen_trainer.train_on_batch([y_rand_batch, z_rand_batch], y_pos)
-            _, dis_loss, loss, dis_acc, acc = dis_trainer.train_on_batch([y_rand_batch, z_rand_batch, x_batch], [y_neg, y_pos])
+            _, _, gen_loss, _, gen_acc = gen_trainer.train_on_batch([x_batch, y_batch, y_rand_batch, z_rand_batch], [y_pos, y_pos])
+            _, _, _, dis_loss, _, _, dis_acc = dis_trainer.train_on_batch([x_batch, y_batch, y_rand_batch, z_rand_batch, x_batch], [y_neg, y_neg, y_pos])
+
+            if e == 0 and b == 0:
+                print(' {:10s} | {:8s} | {:8s} | {:8s} | {:8s} | {:8s} | {:8s}'.format(
+                    'epoch', 'done', 'vae loss', 'gen loss', 'gen acc', 'dis loss', 'dis acc'))
 
             ratio = 100.0 * (b + batchsize) / num_data
-            print(' epoch #{:4d} | {:6.2f} % | {:8.6f}'.format(e + 1, ratio, loss), end='\r')
+            print(' epoch #{:3d} | {:6.2f} % | {:8.6f} | {:8.6f} | {:8.6f} | {:8.6f} | {:8.6f}'.format(
+                e + 1, ratio, vae_loss, gen_loss, dis_loss, gen_acc, dis_acc), end='\r')
 
         print('')
 
