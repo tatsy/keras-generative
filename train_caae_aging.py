@@ -5,7 +5,7 @@ import argparse
 import numpy as np
 import scipy.misc
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
@@ -129,7 +129,7 @@ def Generator():
     x = Activation('relu')(x)
 
     x = Deconvolution2D(filters=3, kernel_size=(5, 5), strides=(2, 2), padding='same')(x)
-    x = Activation('sigmoid')(x)
+    x = Activation('tanh')(x)
 
     return Model([y_inputs, z_inputs], x, name='generator')
 
@@ -167,7 +167,7 @@ def variational_loss(avg, log_var):
         x_true = xy_true[0]
         size = K.shape(x_true)[1:]
         scale = K.cast(K.prod(size), 'float32')
-        entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred[0])) * scale
+        entropy = K.mean(keras.metrics.binary_crossentropy((x_true + 1.0) * 0.5, (x_pred[0] + 1.0) * 0.5)) * scale
         kl_loss = K.mean(-0.5 * K.sum(1.0 + log_var - K.square(avg) - K.exp(log_var), axis=-1))
         return entropy + kl_loss
 
@@ -197,7 +197,7 @@ def main():
 
     x_data, y_data = load_data(args.dataset, args.datasize+10)
     x_data = x_data.astype('float32')
-    x_data = x_data / 255.0
+    x_data = x_data / 127.5 - 1.0
     y_data = y_data.astype('float32')
     y_data = y_data / 100.0
 
@@ -225,7 +225,7 @@ def main():
 
     vae_trainer = Model([x_inputs, y_inputs], x_pred)
     vae_trainer.compile(loss=variational_loss(avg, log_var),
-                        optimizer='adadelta')
+                        optimizer=keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5))
 
     # Generator trainer
     set_trainable(enc, False)
@@ -237,7 +237,7 @@ def main():
     l_pred = dis(x_pred)
     gen_trainer = Model([x_inputs, y_inputs, y_rand, z_rand], [l_pred, l_rand])
     gen_trainer.compile(loss=keras.losses.binary_crossentropy,
-                       optimizer='adadelta',
+                       optimizer=keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5),
                        metrics=['accuracy'])
 
     # Discriminator trainer
@@ -248,14 +248,11 @@ def main():
     dis_trainer = Model(inputs=[x_inputs, y_inputs, y_rand, z_rand, x_data],
                         outputs=[l_pred, l_rand, l_data])
     dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                        optimizer='adadelta',
+                        optimizer=keras.optimizers.Adam(lr=1.0e-4, beta_1=0.5),
                         metrics=['accuracy'])
 
     # Training loop
     num_data = len(y_train)
-    z_samples = np.random.normal(size=(100, seed_dims)).astype(np.float32)
-    y_samples = np.tile(np.eye(10, 10), [10, 1])
-
     for e in range(args.epoch):
         perm = np.random.permutation(num_data)
         gen_loss_sum = np.float32(0.0)
@@ -307,13 +304,14 @@ def main():
         # Show current generated images
         z_avg_test, _ = enc.predict([x_test, y_test])
         imgs = gen.predict([y_test, z_avg_test])
+        imgs = imgs * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
 
         fig = plt.figure(figsize=(8, 8))
         grid = gridspec.GridSpec(8, 10, wspace=0.1, hspace=0.1)
         for i in range(10):
             ax = plt.Subplot(fig, grid[i])
-            ax.imshow(x_test[i, :, :, :], interpolation='none', vmin=0.0, vmax=1.0)
+            ax.imshow(x_test[i, :, :, :] * 0.5 + 0.5, interpolation='none', vmin=0.0, vmax=1.0)
             ax.axis('off')
             fig.add_subplot(ax)
 
