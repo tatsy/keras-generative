@@ -13,13 +13,14 @@ import matplotlib.gridspec as gridspec
 
 import keras
 from keras.models import Model, Sequential
-from keras.layers import Input, Flatten, Dense, Activation, Reshape, Dropout
+from keras.layers import Input, Flatten, Dense, Activation, Reshape, Dropout, Concatenate, Lambda
 from keras.layers import Convolution2D, Deconvolution2D, LeakyReLU, BatchNormalization
 from keras.layers import UpSampling2D, AveragePooling2D, GlobalAveragePooling2D
 from keras import backend as K
 
 seed_dims = 100
 n_filters = 128
+image_shape = (64, 64, 3)
 
 def Decoder():
     inputs = Input(shape=(seed_dims,))
@@ -69,7 +70,7 @@ def Decoder():
     return model
 
 def Encoder():
-    inputs = Input(shape=(64, 64, 3))
+    inputs = Input(shape=image_shape)
 
     # Layer 1
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(inputs)
@@ -81,36 +82,36 @@ def Encoder():
     x = LeakyReLU(alpha=0.3)(x)
 
     # Layer 2
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
     # Layer 3
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
     # Layer 4
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 4, kernel_size=(3, 3), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
+    x = Convolution2D(filters=n_filters * 4, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
     x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.3)(x)
 
     # Fully connected layer
     x = Flatten()(x)
     x = Dense(seed_dims)(x)
-    x = Activation('softmax')(x)
+    x = Activation('tanh')(x)
 
     model = Model(inputs, x)
     return model
@@ -119,30 +120,34 @@ def generator_loss(ae_in, ae_out):
     def lossfun(y_true, y_pred):
         ae_input = ae_in * 0.5 + 0.5
         ae_output = ae_out * 0.5 + 0.5
-
-        size = K.shape(ae_input)[1:]
-        scale = K.cast(K.prod(size), 'float32')
-
-        return K.mean(keras.metrics.binary_crossentropy(ae_input, ae_output)) * scale
+        return K.mean(K.abs(ae_input - ae_output), axis=[1, 2, 3])
 
     return lossfun
 
-def discriminator_loss(ae_in1, ae_in2, ae_out1, ae_out2):
-    def lossfun(y_true, y_pred):
-        ae_input1 = ae_in1 * 0.5 + 0.5
-        ae_output1 = ae_out1 * 0.5 + 0.5
-        ae_input2 = ae_in2 * 0.5 + 0.5
-        ae_output2 = ae_out2 * 0.5 + 0.5
+class DiscriminatorLoss(object):
+    __name__ = 'discriminator_loss'
 
-        size = K.shape(ae_input1)[1:]
-        scale = K.cast(K.prod(size), 'float32')
+    def __init__(self, lambda_k):
+        self.lambda_k = lambda_k
+        self.gamma = 0.5
+        self.k_t = K.variable(0.0, dtype=K.floatx())
 
-        loss1 = K.mean(keras.metrics.binary_crossentropy(ae_input1, ae_output1)) * scale
-        loss2 = K.mean(keras.metrics.binary_crossentropy(ae_input2, ae_output2)) * scale
+    def __call__(self, y_true, y_pred):
+        x_random, x_data = y_true[:, :, :, 0:3], y_true[:, :, :, 3:6]
+        y_random, y_data = y_pred[:, :, :, 0:3], y_pred[:, :, :, 3:6]
 
-        return loss2 - loss1
+        gen_loss = K.mean(K.abs(x_random - y_random), axis=[1, 2, 3])
+        dis_loss = K.mean(K.abs(x_data - y_data), axis=[1, 2, 3])
+        loss = dis_loss - self.k_t * gen_loss
 
-    return lossfun
+        mean_gen_loss = K.mean(gen_loss)
+        mean_dis_loss = K.mean(dis_loss)
+        self.gamma = mean_gen_loss / (mean_dis_loss + 1.0e-12)
+        self.gamma = K.clip(self.gamma, 0.0, 1.0)
+        self.k_t = self.k_t + self.lambda_k * (self.gamma * mean_dis_loss - mean_gen_loss)
+        self.k_t = K.clip(self.k_t, 0.0, 1.0)
+
+        return loss
 
 def save_images(gen, samples, output, epoch, batch=-1):
     imgs = gen.predict(samples) * 0.5 + 0.5
@@ -197,6 +202,53 @@ def load_data(folder, num_images=60000):
     print(n_images, 'images loaded!')
     return np.stack(data, axis=0)
 
+def build_generator(gen, enc, dec, optim):
+    set_trainable(enc, False)
+    set_trainable(dec, False)
+
+    h_random_input = Input(shape=(seed_dims,))
+    x_random = gen(h_random_input)
+
+    h_random = enc(x_random)
+    y_random = dec(h_random)
+
+    gen_trainer = Model(h_random_input, y_random)
+    gen_trainer.summary()
+
+    gen_trainer.compile(loss=generator_loss(x_random, y_random),
+                        optimizer=optim)
+
+    return gen_trainer
+
+
+def build_discriminator(enc, dec, optim):
+    set_trainable(enc, True)
+    set_trainable(dec, True)
+
+    all_input = Input(shape=(image_shape[0], image_shape[1], image_shape[2] * 2))
+
+    x_random = Lambda(lambda x: x[:, :, :, 0:3], output_shape=image_shape)(all_input)
+    x_data = Lambda(lambda x: x[:, :, :, 3:6], output_shape=image_shape)(all_input)
+
+    h_data = enc(x_data)
+    y_data = dec(h_data)
+
+    h_random = enc(x_random)
+    y_random = dec(h_random)
+
+    all_output = Concatenate(axis=-1)([y_random, y_data])
+
+    dis_trainer = Model(inputs=all_input, outputs=all_output)
+    dis_trainer.summary()
+
+    lambda_k = np.float(0.001)
+    dis_trainer.compile(loss=DiscriminatorLoss(lambda_k),
+                        optimizer=optim)
+
+    return dis_trainer
+
+
+
 def main():
     parser = argparse.ArgumentParser(description='Keras DCGAN')
     parser.add_argument('--data', required=True)
@@ -225,40 +277,8 @@ def main():
     gen_optim = keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5)
     dis_optim = keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5)
 
-    # Input for generator
-    set_trainable(enc, False)
-    set_trainable(dec, False)
-
-    h_random_input = Input(shape=(seed_dims,))
-    x_random = gen(h_random_input)
-
-    h_random = enc(x_random)
-    y_random = dec(h_random)
-
-    gen_trainer = Model(h_random_input, y_random)
-    gen_trainer.compile(loss=generator_loss(x_random, y_random),
-                        optimizer=gen_optim)
-
-    gen_trainer.summary()
-
-    # Input for discriminator
-    set_trainable(gen, False)
-    set_trainable(enc, True)
-    set_trainable(dec, True)
-
-    x_data = Input(shape=(64, 64, 3))
-    h_data = enc(x_data)
-    y_data = dec(h_data)
-
-    dis_trainer = Model(inputs=[h_random_input, x_data], outputs=y_data)
-
-    dis_trainer.summary()
-
-    dis_trainer.compile(loss=discriminator_loss(x_random, x_data, y_random, y_data),
-                        optimizer=dis_optim)
-
-    dis_trainer.summary()
-
+    gen_trainer = build_generator(gen, enc, dec, gen_optim)
+    dis_trainer = build_discriminator(enc, dec, dis_optim)
 
     # Training loop
     num_data = len(x_train)
@@ -275,22 +295,25 @@ def main():
             batch_size = batch_end - batch_start
             indx = perm[batch_start:batch_end]
 
-            x_batch = x_train[indx, :, :, :]
             h_rand_batch = np.random.uniform(-1.0, 1.0, size=(batch_size, seed_dims)).astype(np.float32)
+            x_rand_batch = gen.predict_on_batch(h_rand_batch)
+            x_batch = x_train[indx, :, :, :]
+            x_concat_batch = np.concatenate([x_rand_batch, x_batch], axis=-1)
+
+            dis_loss = dis_trainer.train_on_batch(x_concat_batch, x_concat_batch)
 
             dummy_output = np.zeros(x_batch.shape)
             gen_loss = gen_trainer.train_on_batch(h_rand_batch, dummy_output)
-            dis_loss = dis_trainer.train_on_batch([h_rand_batch, x_batch], dummy_output)
 
             # Show info
             gen_loss_sum += gen_loss
             dis_loss_sum += dis_loss
             if e == 0 and b == 0:
-                print(' {:10s} | {:8s} | {:8s} | {:8s} '.format(
+                print(' {:10s} | {:8s} | {:12s} | {:12s} '.format(
                     'epoch', 'done', 'gen loss', 'dis loss'))
 
             ratio = min(100.0, 100.0 * batch_end / num_data)
-            print(' epoch #{:3s} | {:6.2f} % | {:8.6f} | {:8.6f} '.format(
+            print(' epoch #{:3s} | {:6.2f} % | {:12.6f} | {:12.6f} '.format(
                 '%d' % (e + 1), ratio,
                 gen_loss_sum / (b + 1), dis_loss_sum / (b + 1)), end='\r')
 
@@ -301,8 +324,9 @@ def main():
 
         # Save model
         if (e + 1) % 10 == 0:
-            dis.save_weights(os.path.join(args.result, 'weights_discriminator_epoch_{:04d}.hdf5'.format(e + 1)))
             gen.save_weights(os.path.join(args.result, 'weights_generator_epoch_{:04d}.hdf5'.format(e + 1)))
+            enc.save_weights(os.path.join(args.result, 'weights_encoder_epoch_{:04d}.hdf5'.format(e + 1)))
+            dec.save_weights(os.path.join(args.result, 'weights_decoder_epoch_{0:04d}.hdf5'.format(e + 1)))
 
         # Show current generated images
         save_images(gen, samples, args.output, e)
