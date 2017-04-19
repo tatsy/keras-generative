@@ -116,13 +116,16 @@ def Encoder():
     model = Model(inputs, x)
     return model
 
-def generator_loss(ae_in, ae_out):
-    def lossfun(y_true, y_pred):
-        ae_input = ae_in * 0.5 + 0.5
-        ae_output = ae_out * 0.5 + 0.5
-        return K.mean(K.abs(ae_input - ae_output), axis=[1, 2, 3])
+class GeneratorLoss(object):
+    __name__ = 'generator_loss'
 
-    return lossfun
+    def __init__(self):
+        pass
+
+    def __call__(self, y_true, y_pred):
+        x_random, y_random = y_pred[:, :, :, 0:3], y_pred[:, :, :, 3:6]
+        gen_loss = K.mean(K.abs(x_random - y_random), axis=[1, 2, 3])
+        return gen_loss
 
 class DiscriminatorLoss(object):
     __name__ = 'discriminator_loss'
@@ -194,6 +197,8 @@ def load_data(folder, num_images=60000):
     data = [None] * n_images
     for i, f in enumerate(files):
         data[i] = scipy.misc.imread(f, mode='RGB')
+        if data[i].ndim == 2:
+            data[i] = np.tile(data[i][:, :, np.newaxis], [1, 3])
         ratio = 100.0 * (i + 1) / n_images
         print('[ {:6.2f} % ] [ {} ]'.format(ratio, progress_bar(i + 1, n_images)), end='\r', flush=True)
 
@@ -203,6 +208,7 @@ def load_data(folder, num_images=60000):
     return np.stack(data, axis=0)
 
 def build_generator(gen, enc, dec, optim):
+    set_trainable(gen, True)
     set_trainable(enc, False)
     set_trainable(dec, False)
 
@@ -212,16 +218,18 @@ def build_generator(gen, enc, dec, optim):
     h_random = enc(x_random)
     y_random = dec(h_random)
 
-    gen_trainer = Model(h_random_input, y_random)
+    all_output = Concatenate(axis=-1)([x_random, y_random])
+
+    gen_trainer = Model(h_random_input, all_output)
     gen_trainer.summary()
 
-    gen_trainer.compile(loss=generator_loss(x_random, y_random),
+    gen_trainer.compile(loss=GeneratorLoss(),
                         optimizer=optim)
 
     return gen_trainer
 
-
-def build_discriminator(enc, dec, optim):
+def build_discriminator(gen, enc, dec, optim):
+    set_trainable(gen, False)
     set_trainable(enc, True)
     set_trainable(dec, True)
 
@@ -246,8 +254,6 @@ def build_discriminator(enc, dec, optim):
                         optimizer=optim)
 
     return dis_trainer
-
-
 
 def main():
     parser = argparse.ArgumentParser(description='Keras DCGAN')
@@ -278,7 +284,7 @@ def main():
     dis_optim = keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5)
 
     gen_trainer = build_generator(gen, enc, dec, gen_optim)
-    dis_trainer = build_discriminator(enc, dec, dis_optim)
+    dis_trainer = build_discriminator(gen, enc, dec, dis_optim)
 
     # Training loop
     num_data = len(x_train)
@@ -327,6 +333,7 @@ def main():
             gen.save_weights(os.path.join(args.result, 'weights_generator_epoch_{:04d}.hdf5'.format(e + 1)))
             enc.save_weights(os.path.join(args.result, 'weights_encoder_epoch_{:04d}.hdf5'.format(e + 1)))
             dec.save_weights(os.path.join(args.result, 'weights_decoder_epoch_{0:04d}.hdf5'.format(e + 1)))
+            print('Current weights are saved in "{}"'.format(args.result))
 
         # Show current generated images
         save_images(gen, samples, args.output, e)
