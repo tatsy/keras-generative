@@ -13,14 +13,16 @@ import matplotlib.gridspec as gridspec
 
 import keras
 from keras.datasets import mnist
-from keras.models import Model, Sequential
+from keras.models import Model, Sequential, Layer
+from keras.engine.topology import Container, InputSpec
 from keras.layers import Input, Flatten, Dense, Activation, Reshape, Dropout, Concatenate, Lambda, GaussianNoise
 from keras.layers import Convolution2D, Deconvolution2D, LeakyReLU, ELU, BatchNormalization
 from keras.layers import UpSampling2D, AveragePooling2D, GlobalAveragePooling2D
 from keras import backend as K
 
+"""
 z_dims = 50
-h_dims = 512
+h_dims = 16
 n_filters = 32
 image_shape = (28, 28, 1)
 
@@ -29,40 +31,40 @@ def Decoder(input_dims):
 
     # Fully connected layer
     x = Dense(4 * 4 * n_filters)(inputs)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = Reshape((4, 4, n_filters))(x)
 
     # Layer 1
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = UpSampling2D(size=(2, 2))(x)
 
     # Layer 2
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = UpSampling2D(size=(2, 2))(x)
 
     # Layer 3
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3))(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = UpSampling2D(size=(2, 2))(x)
 
     # Layer 4
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
 
     x = Convolution2D(filters=image_shape[2], kernel_size=(3, 3), padding='same')(x)
     x = Activation('tanh')(x)
@@ -83,133 +85,133 @@ def Encoder():
 
     x = Convolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
     x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = ELU()(x)
 
     # Layer 2
     x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = ELU()(x)
 
     x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
     x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = ELU()(x)
 
     # Layer 3
     x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), padding='same')(x)
     x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = ELU()(x)
 
     x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
     x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = ELU()(x)
 
     # Fully connected layer
     x = Flatten()(x)
     x = Dense(h_dims)(x)
-    x = Activation('linear')(x)
+    x = BatchNormalization()(x)
+    x = Activation('tanh')(x)
 
     model = Model(inputs, x)
     return model
 
 """
-seed_dims = 100
+
+z_dims = 50
+h_dims = 2048
 n_filters = 128
 image_shape = (64, 64, 3)
 
-def Decoder():
-    inputs = Input(shape=(seed_dims,))
+def basic_decode_layer(x, activation='relu', upsample=True):
+    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation)(x)
+
+    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
+    x = BatchNormalization()(x)
+    x = Activation(activation)(x)
+
+    if upsample:
+        x = UpSampling2D(size=(2, 2))(x)
+
+    return x
+
+
+def basic_encode_layer(x, activation='elu'):
+    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
+    x = BatchNormalization()(x)
+    if activation == 'leaky_relu':
+        x = LeakyReLU()(x)
+    else:
+        x = Activation(activation)(x)
+
+    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
+    x = AveragePooling2D()(x)
+    x = BatchNormalization()(x)
+    if activation == 'leaky_relu':
+        x = LeakyReLU()(x)
+    else:
+        x = Activation(activation)(x)
+
+    return x
+
+class MinibatchDiscriminatin(Layer):
+    def __init__(self, **kwargs):
+        super(MinibatchDiscriminatin, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        assert len(input_shape) == 3
+
+    def call(self, x):
+        size = K.shape(x)
+        diffs = K.expand_dims(x, 3) - K.expand_dims(K.permute_dimensions(x, [1, 2, 0]), 0)
+        abs_diffs = K.sum(K.abs(diffs), axis=2)
+
+        minibatch_features = K.sum(K.exp(-(abs_diffs)), axis=2)
+        return minibatch_features
+
+    def compute_output_shape(self, input_shape):
+        assert input_shape and len(input_shape) == 3
+        return input_shape[0], input_shape[1]
+
+def Decoder(input_dims):
+    inputs = Input(shape=(input_dims,))
 
     # Fully connected layer
     x = Dense(8 * 8 * n_filters)(inputs)
     x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    x = Activation('elu')(x)
     x = Reshape((8, 8, n_filters))(x)
 
-    # Layer 1
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
+    activation = 'relu'
+    x = basic_decode_layer(x, activation)
+    x = basic_decode_layer(x, activation)
+    x = basic_decode_layer(x, activation)
+    x = basic_decode_layer(x, activation, upsample=False)
 
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    # Layer 2
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    # Layer 3
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    # Layer 4
-    x = Deconvolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(x)
-    x = BatchNormalization()(x)
-    x = Activation('relu')(x)
-
-    x = Deconvolution2D(filters=3, kernel_size=(3, 3), padding='same')(x)
-    x = Activation('tanh')(x)
-
-    model = Model(inputs, x)
-    return model
+    x = Convolution2D(filters=3, kernel_size=(3, 3), padding='same')(x)
+    return Model(inputs, x)
 
 def Encoder():
     inputs = Input(shape=image_shape)
 
-    # Layer 1
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    x = GaussianNoise(stddev=0.5)(inputs)
 
-    x = Convolution2D(filters=n_filters, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    # Layer 2
-    x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    x = Convolution2D(filters=n_filters * 2, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    # Layer 3
-    x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    x = Convolution2D(filters=n_filters * 3, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    # Layer 4
-    x = Convolution2D(filters=n_filters * 4, kernel_size=(3, 3), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
-
-    x = Convolution2D(filters=n_filters * 4, kernel_size=(3, 3), strides=(2, 2), padding='same')(inputs)
-    x = BatchNormalization()(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    # Basic layers
+    activation = 'leaky_relu'
+    x = basic_encode_layer(x, activation)
+    x = basic_encode_layer(x, activation)
+    x = basic_encode_layer(x, activation)
+    x = basic_encode_layer(x, activation)
 
     # Fully connected layer
     x = Flatten()(x)
-    x = Dense(seed_dims)(x)
-    x = Activation('tanh')(x)
 
-    model = Model(inputs, x)
-    return model
-"""
+    y = Reshape((256, -1))(x)
+    y = MinibatchDiscriminatin()(y)
+    x = Concatenate(axis=1)([x, y])
+    x = Dense(h_dims)(x)
+
+    return Model(inputs, x)
 
 class GeneratorLoss(object):
     __name__ = 'generator_loss'
@@ -219,7 +221,7 @@ class GeneratorLoss(object):
 
     def __call__(self, y_true, y_pred):
         x_random, y_random = y_pred[:, :, :, 0:image_shape[2]], y_pred[:, :, :, image_shape[2]:image_shape[2]*2]
-        gen_loss = K.mean(K.abs(x_random - y_random), axis=[1, 2, 3])
+        gen_loss = K.mean(K.abs(x_random - y_random), axis=-1)
         return gen_loss
 
 class DiscriminatorLoss(object):
@@ -235,18 +237,22 @@ class DiscriminatorLoss(object):
         x_random, x_data = y_true[:, :, :, 0:image_shape[2]], y_true[:, :, :, image_shape[2]:image_shape[2]*2]
         y_random, y_data = y_pred[:, :, :, 0:image_shape[2]], y_pred[:, :, :, image_shape[2]:image_shape[2]*2]
 
-        gen_loss = K.mean(K.abs(x_random - y_random), axis=[1, 2, 3])
-        dis_loss = K.mean(K.abs(x_data - y_data), axis=[1, 2, 3])
+        gen_loss = K.mean(K.abs(x_random - y_random), axis=-1)
+        dis_loss = K.mean(K.abs(x_data - y_data), axis=-1)
         loss = dis_loss - self.k_t * gen_loss
 
         mean_gen_loss = K.mean(gen_loss)
         mean_dis_loss = K.mean(dis_loss)
-        # self.gamma = mean_gen_loss / (mean_dis_loss + 1.0e-12)
-        # self.gamma = K.clip(self.gamma, 0.0, 1.0)
+
         new_k_t = self.k_t + self.lambda_k * (self.gamma * mean_dis_loss - mean_gen_loss)
         new_k_t = K.clip(new_k_t, 0.0, 1.0)
 
         self.updates.append(K.update(self.k_t, new_k_t))
+
+        # new_gamma = mean_gen_loss / (mean_dis_loss + 1.0e-12)
+        # new_gamma = K.clip(new_gamma, 0.0, 1.0)
+        #
+        # self.updates.append(K.update(self.gamma, new_gamma))
 
         return loss
 
@@ -261,7 +267,7 @@ class DiscriminatorModel(Model):
 
         return updates
 
-def save_images(gen, samples, output, epoch, batch=-1):
+def save_gen_images(gen, samples, output, epoch, batch=-1):
     imgs = gen.predict(samples) * 0.5 + 0.5
     imgs = np.clip(imgs, 0.0, 1.0)
     if imgs.shape[3] == 1:
@@ -278,12 +284,37 @@ def save_images(gen, samples, output, epoch, batch=-1):
         ax.axis('off')
         fig.add_subplot(ax)
 
-    outfile = os.path.join(output, 'epoch_{:04d}.png'.format(epoch + 1))
+    outfile = os.path.join(output, 'generator_epoch_{:04d}.png'.format(epoch + 1))
     if batch >= 0:
-        outfile = os.path.join(output, 'epoch_{:04d}-{:d}.png'.format(epoch + 1, batch))
+        outfile = os.path.join(output, 'generator_epoch_{:04d}-{:d}.png'.format(epoch + 1, batch))
 
     fig.savefig(outfile, dpi=200)
     plt.close(fig)
+
+def save_dis_images(enc, dec, samples, output, epoch, batch=-1):
+    imgs = dec.predict(enc.predict(samples)) * 0.5 + 0.5
+    imgs = np.clip(imgs, 0.0, 1.0)
+    if imgs.shape[3] == 1:
+        imgs = np.squeeze(imgs, axis=(3,))
+
+    fig = plt.figure(figsize=(8, 8))
+    grid = gridspec.GridSpec(10, 10, wspace=0.1, hspace=0.1)
+    for i in range(100):
+        ax = plt.Subplot(fig, grid[i])
+        if imgs.ndim == 4:
+            ax.imshow(imgs[i, :, :, :], interpolation='none', vmin=0.0, vmax=1.0)
+        else:
+            ax.imshow(imgs[i, :, :], cmap='gray', interpolation='none', vmin=0.0, vmax=1.0)
+        ax.axis('off')
+        fig.add_subplot(ax)
+
+    outfile = os.path.join(output, 'discriminator_epoch_{:04d}.png'.format(epoch + 1))
+    if batch >= 0:
+        outfile = os.path.join(output, 'discriminator_epoch_{:04d}-{:d}.png'.format(epoch + 1, batch))
+
+    fig.savefig(outfile, dpi=200)
+    plt.close(fig)
+
 
 def set_trainable(model, train):
     model.trainable = train
@@ -300,8 +331,8 @@ def progress_bar(x, maxval, width=40):
     return '=' * tick + '>' + ' ' * (width - tick - 1)
 
 def load_data(folder, num_images=60000):
-    (x_train, y_train), _ = mnist.load_data()
-    return x_train
+    # (x_train, y_train), _ = mnist.load_data()
+    # return x_train
 
     files = [f for f in os.listdir(folder) if not f.startswith('.')]
     files = [os.path.join(folder, f) for f in files if f.endswith('.jpg')]
@@ -329,15 +360,15 @@ def build_generator(gen, enc, dec, optim):
     set_trainable(enc, False)
     set_trainable(dec, False)
 
-    h_random_input = Input(shape=(z_dims,))
-    x_random = gen(h_random_input)
+    z_random = Input(shape=(z_dims,))
+    x_random = gen(z_random)
 
     h_random = enc(x_random)
     y_random = dec(h_random)
 
     all_output = Concatenate(axis=-1)([x_random, y_random])
 
-    gen_trainer = Model(h_random_input, all_output)
+    gen_trainer = Model(z_random, all_output)
     gen_trainer.summary()
 
     gen_trainer.compile(loss=GeneratorLoss(),
@@ -345,7 +376,7 @@ def build_generator(gen, enc, dec, optim):
 
     return gen_trainer
 
-def build_discriminator(gen, enc, dec, optim):
+def build_discriminator(gen, enc, dec, optim, gamma, lambda_k):
     set_trainable(gen, False)
     set_trainable(enc, True)
     set_trainable(dec, True)
@@ -366,8 +397,8 @@ def build_discriminator(gen, enc, dec, optim):
     dis_trainer = DiscriminatorModel(inputs=all_input, outputs=all_output)
     dis_trainer.summary()
 
-    lambda_k = np.float(0.001)
-    gamma = np.float(0.5)
+    gamma = np.float(gamma)
+    lambda_k = np.float(lambda_k)
     dis_trainer.compile(loss=DiscriminatorLoss(gamma, lambda_k),
                         optimizer=optim)
 
@@ -381,6 +412,8 @@ def main():
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
     parser.add_argument('--result', default='result')
+    parser.add_argument('--gamma', type=float, default=0.5)
+    parser.add_argument('--lambda_k', type=float, default=0.001)
 
     args = parser.parse_args()
 
@@ -393,11 +426,14 @@ def main():
     x_train = load_data(args.data, args.numtrain)
     x_train = x_train.astype('float32') / 255.0
     x_train = x_train * 2.0 - 1.0
-    x_train = x_train[:, :, :, np.newaxis]
 
     gen = Decoder(input_dims=z_dims)
     enc = Encoder()
     dec = Decoder(input_dims=h_dims)
+
+    gen.summary()
+    enc.summary()
+    dec.summary()
 
     gen_optim = keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5)
     dis_optim = keras.optimizers.Adam(lr=2.0e-4, beta_1=0.5)
@@ -405,7 +441,7 @@ def main():
     # dis_optim = keras.optimizers.Adadelta()
 
     gen_trainer = build_generator(gen, enc, dec, gen_optim)
-    dis_trainer = build_discriminator(gen, enc, dec, dis_optim)
+    dis_trainer = build_discriminator(gen, enc, dec, dis_optim, args.gamma, args.lambda_k)
 
     # Training loop
     num_data = len(x_train)
@@ -427,9 +463,11 @@ def main():
             x_batch = x_train[indx, :, :, :]
             x_concat_batch = np.concatenate([x_rand_batch, x_batch], axis=-1)
 
+
             dis_loss = dis_trainer.train_on_batch(x_concat_batch, x_concat_batch)
 
             dummy_output = np.zeros(x_batch.shape)
+            dummy_output = np.concatenate([dummy_output, dummy_output], axis=-1)
             gen_loss = gen_trainer.train_on_batch(h_rand_batch, dummy_output)
 
             # Show info
@@ -444,20 +482,18 @@ def main():
                 '%d' % (e + 1), ratio,
                 gen_loss_sum / (b + 1), dis_loss_sum / (b + 1)), end='\r')
 
-            if (b + 1) % 200 == 0:
-                save_images(gen, samples, args.output, e, batch_end)
+            if (b + 1) % 500 == 0 or b == num_batches - 1:
+                save_gen_images(gen, samples, args.output, e, batch_end)
+                save_dis_images(enc, dec, x_train[:100], args.output, e, batch_end)
 
         print('')
 
         # Save model
-        if (e + 1) % 10 == 0:
+        if (e + 1) % 5 == 0:
             gen.save_weights(os.path.join(args.result, 'weights_generator_epoch_{:04d}.hdf5'.format(e + 1)))
             enc.save_weights(os.path.join(args.result, 'weights_encoder_epoch_{:04d}.hdf5'.format(e + 1)))
             dec.save_weights(os.path.join(args.result, 'weights_decoder_epoch_{0:04d}.hdf5'.format(e + 1)))
             print('Current weights are saved in "{}"'.format(args.result))
-
-        # Show current generated images
-        save_images(gen, samples, args.output, e)
 
 if __name__ == '__main__':
     main()
