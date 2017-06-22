@@ -1,3 +1,5 @@
+import numpy as np
+
 import keras
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape
@@ -6,14 +8,9 @@ from keras.layers import Conv2D, UpSampling2D, BatchNormalization
 from keras.optimizers import Adam
 from keras import backend as K
 
-def draw_normal(args):
-    z_avg, z_log_var = args
-    batch_size = K.shape(z_avg)[0]
-    z_dims = K.shape(z_avg)[1]
-    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
-    return z_avg + K.exp(z_log_var / 2.0) * eps
+from .utils import set_trainable
 
-class VAE(object):
+class DCGAN(object):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
@@ -25,31 +22,62 @@ class VAE(object):
         self.enc_activation = enc_activation
         self.dec_activation = dec_activation
 
-        self.encoder = None
-        self.decoder = None
+        self.f_gen = None
+        self.f_dis = None
+        self.gen_trainer = None
+        self.dis_trainer = None
 
         self.build_model()
 
-    def train_on_batch(self, x_batch):
-        return self.trainer.train_on_batch(x_batch, x_batch)
+    def train_on_batch(self, x_real):
+        batchsize = len(x_real)
+        y_pos = np.zeros(batchsize, dtype=np.int32)
+        y_pos = keras.utils.to_categorical(y_pos, 2)
+        y_neg = np.ones(batchsize, dtype=np.int32)
+        y_neg = keras.utils.to_categorical(y_neg, 2)
+
+        z_batch = np.random.uniform(-1.0, 1.0, size=(batchsize, self.z_dims)).astype(np.float32)
+
+        g_loss = self.gen_trainer.train_on_batch(z_batch, y_pos)
+
+        x_fake = self.f_gen.predict_on_batch(z_batch)
+        d_loss_fake = self.dis_trainer.train_on_batch(x_fake, y_neg)
+        d_loss_real = self.dis_trainer.train_on_batch(x_real, y_pos)
+
+        loss = {
+            'g_loss': g_loss,
+            'd_loss': 0.5 * (d_loss_fake + d_loss_real),
+            'd_loss_real': d_loss_real,
+            'd_loss_fake': d_loss_fake
+        }
+        return loss
 
     def predict(self, z_samples):
-        return self.decoder.predict(z_samples)
+        return self.f_gen.predict(z_samples)
 
     def build_model(self):
-        self.encoder = self.build_encoder()
-        self.decoder = self.build_decoder()
+        self.f_gen = self.build_decoder()
+        self.f_dis = self.build_encoder()
 
-        inputs = Input(shape=self.input_shape)
-        z_avg, z_log_var = self.encoder(inputs)
-        z = Lambda(draw_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
-        y = self.decoder(z)
+        dis_input = Input(shape=self.input_shape)
+        y = self.f_dis(dis_input)
 
-        self.trainer = Model(inputs, y)
-        self.trainer.compile(loss=self.variational_loss(z_avg, z_log_var),
-                             optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+        self.dis_trainer = Model(dis_input, y)
+        self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
+                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
 
-        self.trainer.summary()
+        set_trainable(self.f_dis, False)
+
+        gen_input = Input(shape=(self.z_dims,))
+        x = self.f_gen(gen_input)
+        y_fake = self.f_dis(x)
+
+        self.gen_trainer = Model(gen_input, y_fake)
+        self.gen_trainer.compile(loss=keras.losses.binary_crossentropy,
+                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
+
+        self.gen_trainer.summary()
+        self.dis_trainer.summary()
 
     def build_encoder(self):
         inputs = Input(shape=self.input_shape)
@@ -63,12 +91,10 @@ class VAE(object):
         x = Dense(1024)(x)
         x = Activation('relu')(x)
 
-        z_avg = Dense(self.z_dims)(x)
-        z_log_var = Dense(self.z_dims)(x)
-        z_avg = Activation(self.enc_activation)(z_avg)
-        z_log_var = Activation(self.enc_activation)(z_log_var)
+        x = Dense(2)(x)
+        x = Activation(self.enc_activation)(x)
 
-        return Model(inputs, [z_avg, z_log_var], name='encoder')
+        return Model(inputs, x, name='encoder')
 
     def build_decoder(self):
         inputs = Input(shape=(self.z_dims,))
@@ -106,13 +132,3 @@ class VAE(object):
 
         x = UpSampling2D(size=(2, 2))(x)
         return x
-
-    def variational_loss(self, z_avg, z_log_var):
-        def lossfun(x_true, x_pred):
-            size = K.shape(x_true)[1:]
-            scale = K.cast(K.prod(size), 'float32')
-            entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred)) * scale
-            kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1))
-            return entropy + kl_loss
-
-        return lossfun

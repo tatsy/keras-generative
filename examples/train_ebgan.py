@@ -19,7 +19,7 @@ from keras import backend as K
 
 import h5py
 
-from models import VAE
+from models import EBGAN
 
 z_dims = 128
 
@@ -51,10 +51,14 @@ def main():
     parser = argparse.ArgumentParser(description='Keras VAE')
     parser.add_argument('--epoch', type=int, default=100)
     parser.add_argument('--batchsize', type=int, default=50)
+    parser.add_argument('--output', default='output')
 
     args = parser.parse_args()
 
-    vae = VAE(z_dims=z_dims)
+    if not os.path.isdir(args.output):
+        os.mkdir(args.output)
+
+    gan = EBGAN(z_dims=z_dims)
 
     datasets = load_celebA('datasets/celebA.hdf5')
     datasets = datasets * 2.0 - 1.0
@@ -71,13 +75,14 @@ def main():
 
             x_batch = datasets[indx, :, :, :]
 
-            loss = vae.train_on_batch(x_batch)
+            loss = gan.train_on_batch(x_batch)
             ratio = 100.0 * (b + batchsize) / num_data
-            print(' epoch #%d :: %6.2f %% :: loss = %8.6f' % (e + 1, ratio, loss),
+            print(' epoch #%d :: %6.2f %% :: g_loss = %8.6f :: d_loss = %8.6f' % (e + 1, ratio, loss['g_loss'], loss['d_loss']),
                   end='\r', flush=True)
 
         # Show current generated images
         outfile = os.path.join(args.output, 'epoch_%04d.png' % (e + 1))
+        save_images(gan, samples, outfile)
         print('')
 
 if __name__ == '__main__':
