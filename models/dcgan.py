@@ -9,14 +9,19 @@ from keras.optimizers import Adam
 from keras import backend as K
 
 from .utils import set_trainable
+from .base import BaseModel
 
-class DCGAN(object):
+class DCGAN(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
         enc_activation='sigmoid',
-        dec_activation='sigmoid'
+        dec_activation='sigmoid',
+        name='dcgan',
+        **kwargs
     ):
+        super(DCGAN, self).__init__(name=name, **kwargs)
+
         self.input_shape = input_shape
         self.z_dims = z_dims
         self.enc_activation = enc_activation
@@ -54,6 +59,11 @@ class DCGAN(object):
 
     def predict(self, z_samples):
         return self.f_gen.predict(z_samples)
+
+    def save_weights(self, out_dir, epoch, batch):
+        if e % 10 == 0:
+            self.f_dis.save_weights(os.path.join(args.result, 'gen_weights_epoch_{:04d}.hdf5'.format(epoch)))
+            self.f_gen.save_weights(os.path.join(args.result, 'dis_weights_epoch_{:04d}.hdf5'.format(epoch)))
 
     def build_model(self):
         self.f_gen = self.build_decoder()

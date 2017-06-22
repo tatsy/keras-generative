@@ -6,6 +6,8 @@ from keras.layers import Conv2D, UpSampling2D, BatchNormalization
 from keras.optimizers import Adam
 from keras import backend as K
 
+from .base import BaseModel
+
 def draw_normal(args):
     z_avg, z_log_var = args
     batch_size = K.shape(z_avg)[0]
@@ -13,13 +15,17 @@ def draw_normal(args):
     eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
     return z_avg + K.exp(z_log_var / 2.0) * eps
 
-class VAE(object):
+class VAE(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
         enc_activation='sigmoid',
-        dec_activation='sigmoid'
+        dec_activation='sigmoid',
+        name='vae',
+        **kwargs
     ):
+        super(VAE, self).__init__(name=name, **kwargs)
+
         self.input_shape = input_shape
         self.z_dims = z_dims
         self.enc_activation = enc_activation
@@ -31,10 +37,17 @@ class VAE(object):
         self.build_model()
 
     def train_on_batch(self, x_batch):
-        return self.trainer.train_on_batch(x_batch, x_batch)
+        loss = {}
+        loss['loss'] = self.trainer.train_on_batch(x_batch, x_batch)
+        return loss
 
     def predict(self, z_samples):
         return self.decoder.predict(z_samples)
+
+    def save_weights(self, out_dir, epoch, batch):
+        if e % 10 == 0:
+            self.encoder.save_weights(os.path.join(args.result, 'enc_weights_epoch_{:04d}.hdf5'.format(epoch)))
+            self.decoder.save_weights(os.path.join(args.result, 'dec_weights_epoch_{:04d}.hdf5'.format(epoch)))
 
     def build_model(self):
         self.encoder = self.build_encoder()

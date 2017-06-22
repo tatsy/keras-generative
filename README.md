@@ -14,5 +14,5 @@ Keras VAEs and GANs
 Example programs are included in ``examples`` directory. These programs can be used as
 
 ```shell
-python examples\train_dcgan.py --epoch 200 --batchsize 100 --output output
+python train.py --model=dcgan --epoch=200 --batchsize=100 --output=output
 ```
