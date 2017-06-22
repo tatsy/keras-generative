@@ -10,4 +10,4 @@ result/*
 datasets/*
 
 __pycache__
-
+*.pyc

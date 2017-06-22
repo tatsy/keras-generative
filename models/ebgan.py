@@ -78,7 +78,7 @@ class EBGAN(BaseModel):
 
         self.dis_trainer = Model(x_real_fake, x_real_fake_pred)
         self.dis_trainer.compile(loss=self.discriminator_loss(x_real, x_fake, x_real_pred, x_fake_pred),
-                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
 
         set_trainable(self.f_dis, False)
 
@@ -88,7 +88,7 @@ class EBGAN(BaseModel):
 
         self.gen_trainer = Model(z_input, x_fake_pred)
         self.gen_trainer.compile(loss=self.generator_loss(x_fake, x_fake_pred),
-                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
 
         self.gen_trainer.summary()
         self.dis_trainer.summary()

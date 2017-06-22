@@ -74,7 +74,7 @@ class DCGAN(BaseModel):
 
         self.dis_trainer = Model(dis_input, y)
         self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
 
         set_trainable(self.f_dis, False)
 
@@ -84,7 +84,7 @@ class DCGAN(BaseModel):
 
         self.gen_trainer = Model(gen_input, y_fake)
         self.gen_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=2.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
 
         self.gen_trainer.summary()
         self.dis_trainer.summary()
