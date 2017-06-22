@@ -45,7 +45,7 @@ class VAE(BaseModel):
         return self.decoder.predict(z_samples)
 
     def save_weights(self, out_dir, epoch, batch):
-        if e % 10 == 0:
+        if epoch % 10 == 0:
             self.encoder.save_weights(os.path.join(args.result, 'enc_weights_epoch_{:04d}.hdf5'.format(epoch)))
             self.decoder.save_weights(os.path.join(args.result, 'dec_weights_epoch_{:04d}.hdf5'.format(epoch)))
 

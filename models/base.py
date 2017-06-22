@@ -2,6 +2,11 @@ import os
 import sys
 import numpy as np
 
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
 from abc import ABCMeta, abstractmethod
 
 def save_images(gen, samples, filename):
@@ -67,7 +72,7 @@ class BaseModel(metaclass=ABCMeta):
                 os.mkdir(res_out_dir)
 
             outfile = os.path.join(res_out_dir, 'epoch_%04d.png' % (e + 1))
-            save_images(gan, samples, outfile)
+            save_images(self, samples, outfile)
             print('')
 
             # Save current weights
