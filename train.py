@@ -3,6 +3,8 @@ import sys
 import math
 import argparse
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import numpy as np
 
 from models import VAE, DCGAN, EBGAN
