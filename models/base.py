@@ -40,16 +40,20 @@ class BaseModel(metaclass=ABCMeta):
                 sys.stdout.flush()
 
             # Save generated images
-            res_out_dir = os.path.join(self.output, 'results')
+            out_dir = os.path.join(self.output, self.name)
+            if not os.path.isdir(out_dir):
+                os.mkdir(out_dir)
+
+            res_out_dir = os.path.join(out_dir, 'results')
             if not os.path.isdir(res_out_dir):
                 os.mkdir(res_out_dir)
 
-            outfile = os.path.join(res_out_dir, 'epoch_%04d.png' % (self.name, e + 1))
+            outfile = os.path.join(res_out_dir, 'epoch_%04d.png' % (e + 1))
             save_images(gan, samples, outfile)
             print('')
 
             # Save current weights
-            wgt_out_dir = os.path.join(self.output, 'weights')
+            wgt_out_dir = os.path.join(out_dir, 'weights')
             if not os.path.isdir(wgt_out_dir):
                 os.mkdir(wgt_out_dir)
 
