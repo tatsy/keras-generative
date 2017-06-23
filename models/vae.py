@@ -1,3 +1,5 @@
+import os
+
 import keras
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape
@@ -46,8 +48,8 @@ class VAE(BaseModel):
 
     def save_weights(self, out_dir, epoch, batch):
         if epoch % 10 == 0:
-            self.encoder.save_weights(os.path.join(args.result, 'enc_weights_epoch_{:04d}.hdf5'.format(epoch)))
-            self.decoder.save_weights(os.path.join(args.result, 'dec_weights_epoch_{:04d}.hdf5'.format(epoch)))
+            self.encoder.save_weights(os.path.join(out_dir, 'enc_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
+            self.decoder.save_weights(os.path.join(out_dir, 'dec_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
 
     def build_model(self):
         self.encoder = self.build_encoder()
@@ -98,8 +100,8 @@ class VAE(BaseModel):
 
         return Model(inputs, x, name='decoder')
 
-    def basic_encoder_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(3, 3),
+    def basic_encoder_layer(self, x, filters, activation='relu'):
+        x = Conv2D(filters=filters, kernel_size=(5, 5),
                    strides=(2, 2), padding='same')(x)
         x = BatchNormalization()(x)
         if activation == 'leaky_relu':
@@ -109,11 +111,11 @@ class VAE(BaseModel):
 
         return x
 
-    def basic_decoder_layer(self, x, filters, activation='relu'):
-        x = Conv2D(filters=filters, kernel_size=(3, 3), padding='same')(x)
+    def basic_decoder_layer(self, x, filters, activation='leaky_relu'):
+        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
         x = BatchNormalization()(x)
-        if activation == 'elu':
-            x = ELU()(x)
+        if activation == 'leaky_relu':
+            x = LeakyReLU(0.2)(x)
         else:
             x = Activation(activation)(x)
 

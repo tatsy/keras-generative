@@ -42,6 +42,20 @@ class BaseModel(metaclass=ABCMeta):
             self.output = kwargs['output']
 
     def main_loop(self, datasets, samples, epochs=100, batchsize=100, reporter=[]):
+        # Create directories
+        out_dir = os.path.join(self.output, self.name)
+        if not os.path.isdir(out_dir):
+            os.mkdir(out_dir)
+
+        res_out_dir = os.path.join(out_dir, 'results')
+        if not os.path.isdir(res_out_dir):
+            os.mkdir(res_out_dir)
+
+        wgt_out_dir = os.path.join(out_dir, 'weights')
+        if not os.path.isdir(wgt_out_dir):
+            os.mkdir(wgt_out_dir)
+
+        # Start training
         print('\n\n--- START TRAINING ---\n')
         num_data = len(datasets)
         for e in range(epochs):
@@ -62,24 +76,12 @@ class BaseModel(metaclass=ABCMeta):
 
                 sys.stdout.flush()
 
-            # Save generated images
-            out_dir = os.path.join(self.output, self.name)
-            if not os.path.isdir(out_dir):
-                os.mkdir(out_dir)
-
-            res_out_dir = os.path.join(out_dir, 'results')
-            if not os.path.isdir(res_out_dir):
-                os.mkdir(res_out_dir)
-
-            outfile = os.path.join(res_out_dir, 'epoch_%04d.png' % (e + 1))
-            save_images(self, samples, outfile)
-            print('')
+                # Save generated images
+                if (b + bsize) % 50000 == 0 or (b+ bsize) == num_data:
+                    outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
+                    save_images(self, samples, outfile)
 
             # Save current weights
-            wgt_out_dir = os.path.join(out_dir, 'weights')
-            if not os.path.isdir(wgt_out_dir):
-                os.mkdir(wgt_out_dir)
-
             self.save_weights(wgt_out_dir, e + 1, b + bsize)
 
     @abstractmethod

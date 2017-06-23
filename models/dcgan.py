@@ -1,3 +1,4 @@
+import os
 import numpy as np
 
 import keras
@@ -62,8 +63,8 @@ class DCGAN(BaseModel):
 
     def save_weights(self, out_dir, epoch, batch):
         if epoch % 10 == 0:
-            self.f_dis.save_weights(os.path.join(args.result, 'gen_weights_epoch_{:04d}.hdf5'.format(epoch)))
-            self.f_gen.save_weights(os.path.join(args.result, 'dis_weights_epoch_{:04d}.hdf5'.format(epoch)))
+            self.f_dis.save_weights(os.path.join(out_dir, 'dis_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
+            self.f_gen.save_weights(os.path.join(out_dir, 'gen_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
 
     def build_model(self):
         self.f_gen = self.build_decoder()
@@ -74,7 +75,7 @@ class DCGAN(BaseModel):
 
         self.dis_trainer = Model(dis_input, y)
         self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5))
 
         set_trainable(self.f_dis, False)
 
@@ -121,21 +122,31 @@ class DCGAN(BaseModel):
 
         return Model(inputs, x, name='decoder')
 
-    def basic_encoder_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(3, 3),
+    def basic_encoder_layer(self, x, filters, bn=False, activation='leaky_relu'):
+        x = Conv2D(filters=filters, kernel_size=(5, 5),
                    strides=(2, 2), padding='same')(x)
-        x = BatchNormalization()(x)
+
+        if bn:
+            x = BatchNormalization()(x)
+
         if activation == 'leaky_relu':
             x = LeakyReLU(0.2)(x)
+        elif activation == 'elu':
+            x = ELU()(x)
         else:
             x = Activation(activation)(x)
 
         return x
 
-    def basic_decoder_layer(self, x, filters, activation='relu'):
-        x = Conv2D(filters=filters, kernel_size=(3, 3), padding='same')(x)
-        x = BatchNormalization()(x)
-        if activation == 'elu':
+    def basic_decoder_layer(self, x, filters, bn=True, activation='elu'):
+        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
+
+        if bn:
+            x = BatchNormalization()(x)
+
+        if activation == 'leaky_relu':
+            x = LeakyReLU(0.2)(x)
+        elif activation == 'elu':
             x = ELU()(x)
         else:
             x = Activation(activation)(x)

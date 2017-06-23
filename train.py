@@ -10,8 +10,6 @@ import numpy as np
 from models import VAE, DCGAN, EBGAN
 from basics import *
 
-z_dims = 128
-
 models = {
     'vae': VAE,
     'dcgan': DCGAN,
@@ -25,6 +23,7 @@ def main():
     parser.add_argument('--epoch', type=int, default=200)
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
+    parser.add_argument('--zdims', type=int, default=256)
 
     args = parser.parse_args()
 
@@ -36,13 +35,13 @@ def main():
     if args.model not in models:
         raise Exception('Unknown model:', args.model)
 
-    model = models[args.model](z_dims=z_dims, output=args.output)
+    model = models[args.model](z_dims=args.zdims, output=args.output)
 
     datasets = load_celebA('datasets/celebA.hdf5')
     datasets = datasets * 2.0 - 1.0
 
     # Training loop
-    samples = np.random.normal(size=(100, z_dims)).astype(np.float32)
+    samples = np.random.normal(size=(100, args.zdims)).astype(np.float32)
     model.main_loop(datasets, samples,
         epochs=args.epoch,
         batchsize=args.batchsize,
