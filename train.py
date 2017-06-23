@@ -5,6 +5,8 @@ import argparse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+import matplotlib
+matplotlib.use('Agg')
 import numpy as np
 
 from models import VAE, DCGAN, EBGAN

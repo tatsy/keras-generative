@@ -6,6 +6,8 @@ import argparse
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 
 from models import CVAE, CVAEGAN
 from basics import *

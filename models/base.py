@@ -10,7 +10,14 @@ import matplotlib.gridspec as gridspec
 from abc import ABCMeta, abstractmethod
 
 class BaseModel(metaclass=ABCMeta):
+    '''
+    Base class for non-conditional generative networks
+    '''
+
     def __init__(self, **kwargs):
+        '''
+        Initialization
+        '''
         if 'name' not in kwargs:
             raise Exception('Please specify model name!')
 
@@ -22,7 +29,10 @@ class BaseModel(metaclass=ABCMeta):
             self.output = kwargs['output']
 
     def main_loop(self, datasets, samples, epochs=100, batchsize=100, reporter=[]):
-        # Create directories
+        '''
+        Main learning loop
+        '''
+        # Create output directories if not exist
         out_dir = os.path.join(self.output, self.name)
         if not os.path.isdir(out_dir):
             os.mkdir(out_dir)
@@ -39,20 +49,23 @@ class BaseModel(metaclass=ABCMeta):
         print('\n\n--- START TRAINING ---\n')
         num_data = len(datasets)
         for e in range(epochs):
-            perm = np.arange(num_data, dtype=np.int32)
-            np.random.shuffle(perm)
+            perm = np.permutation(num_data, dtype=np.int32)
             for b in range(0, num_data, batchsize):
                 bsize = min(batchsize, num_data - b)
                 indx = perm[b:b+bsize]
 
+                # Get batch and train on it
                 x_batch = self.make_batch(datasets, indx)
+                losses = self.train_on_batch(x_batch)
 
-                loss = self.train_on_batch(x_batch)
+                # Print current status
                 ratio = 100.0 * (b + bsize) / num_data
-                print('\rEpoch #%d | %d / %d (%6.2f %%) ' % (e + 1, b + bsize, num_data, ratio), end='')
+                print('\rEpoch #%d | %d / %d (%6.2f %%) ' % \
+                      (e + 1, b + bsize, num_data, ratio), end='')
+
                 for k in reporter:
-                    if k in loss:
-                        print('| %s = %8.6f ' % (k, loss[k]), end='')
+                    if k in losses:
+                        print('| %s = %8.6f ' % (k, losses[k]), end='')
 
                 sys.stdout.flush()
 
@@ -65,9 +78,15 @@ class BaseModel(metaclass=ABCMeta):
             self.save_weights(wgt_out_dir, e + 1, b + bsize)
 
     def make_batch(datasets, indx):
+        '''
+        Get batch from datasets
+        '''
         return datasets[indx]
 
     def save_images(self, gen, samples, filename):
+        '''
+        Save images generated from random sample numbers
+        '''
         imgs = gen.predict(samples)
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
@@ -89,8 +108,14 @@ class BaseModel(metaclass=ABCMeta):
 
     @abstractmethod
     def train_on_batch(self, x_batch):
-        print('No training process is defined! Plase override "train_on_batch" method in the derived model!')
+        '''
+        No training process is defined! Plase override "train_on_batch" method in the derived model!
+        '''
+        pass
 
     @abstractmethod
     def save_weights(self, out_dir, epoch, batch):
-        print('Model weights are not saved! To save them, override the "save_weights" method in the derived model.')
+        '''
+        Model weights are not saved! To save them, override the "save_weights" method in the derived model.
+        '''
+        pass
