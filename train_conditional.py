@@ -7,11 +7,12 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 
-from models import CVAE
+from models import CVAE, CVAEGAN
 from basics import *
 
 models = {
     'cvae': CVAE,
+    'cvaegan': CVAEGAN
 }
 
 def main():
@@ -42,7 +43,7 @@ def main():
     model.main_loop(datasets, samples, datasets.names,
         epochs=args.epoch,
         batchsize=args.batchsize,
-        reporter=['loss', 'g_loss', 'd_loss'])
+        reporter=['loss', 'g_loss', 'd_loss', 'ae_loss'])
 
 if __name__ == '__main__':
     main()
