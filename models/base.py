@@ -9,26 +9,6 @@ import matplotlib.gridspec as gridspec
 
 from abc import ABCMeta, abstractmethod
 
-def save_images(gen, samples, filename):
-    imgs = gen.predict(samples)
-    imgs = np.clip(imgs, 0.0, 1.0)
-    if imgs.shape[3] == 1:
-        imgs = np.squeeze(imgs, axis=(3,))
-
-    fig = plt.figure(figsize=(8, 8))
-    grid = gridspec.GridSpec(10, 10, wspace=0.1, hspace=0.1)
-    for i in range(100):
-        ax = plt.Subplot(fig, grid[i])
-        if imgs.ndim == 4:
-            ax.imshow(imgs[i, :, :, :], interpolation='none', vmin=0.0, vmax=1.0)
-        else:
-            ax.imshow(imgs[i, :, :], cmap='gray', interpolation='none', vmin=0.0, vmax=1.0)
-        ax.axis('off')
-        fig.add_subplot(ax)
-
-    fig.savefig(filename, dpi=200)
-    plt.close(fig)
-
 class BaseModel(metaclass=ABCMeta):
     def __init__(self, **kwargs):
         if 'name' not in kwargs:
@@ -65,7 +45,7 @@ class BaseModel(metaclass=ABCMeta):
                 bsize = min(batchsize, num_data - b)
                 indx = perm[b:b+bsize]
 
-                x_batch = datasets[indx, :, :, :]
+                x_batch = self.make_batch(datasets, indx)
 
                 loss = self.train_on_batch(x_batch)
                 ratio = 100.0 * (b + bsize) / num_data
@@ -79,10 +59,33 @@ class BaseModel(metaclass=ABCMeta):
                 # Save generated images
                 if (b + bsize) % 50000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
-                    save_images(self, samples, outfile)
+                    self.save_images(self, samples, outfile)
 
             # Save current weights
             self.save_weights(wgt_out_dir, e + 1, b + bsize)
+
+    def make_batch(datasets, indx):
+        return datasets[indx]
+
+    def save_images(self, gen, samples, filename):
+        imgs = gen.predict(samples)
+        imgs = np.clip(imgs, 0.0, 1.0)
+        if imgs.shape[3] == 1:
+            imgs = np.squeeze(imgs, axis=(3,))
+
+        fig = plt.figure(figsize=(8, 8))
+        grid = gridspec.GridSpec(10, 10, wspace=0.1, hspace=0.1)
+        for i in range(100):
+            ax = plt.Subplot(fig, grid[i])
+            if imgs.ndim == 4:
+                ax.imshow(imgs[i, :, :, :], interpolation='none', vmin=0.0, vmax=1.0)
+            else:
+                ax.imshow(imgs[i, :, :], cmap='gray', interpolation='none', vmin=0.0, vmax=1.0)
+            ax.axis('off')
+            fig.add_subplot(ax)
+
+        fig.savefig(filename, dpi=200)
+        plt.close(fig)
 
     @abstractmethod
     def train_on_batch(self, x_batch):

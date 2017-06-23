@@ -7,13 +7,11 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 
-from models import VAE, DCGAN, EBGAN
+from models import CVAE
 from basics import *
 
 models = {
-    'vae': VAE,
-    'dcgan': DCGAN,
-    'ebgan': EBGAN
+    'cvae': CVAE,
 }
 
 def main():
@@ -37,11 +35,11 @@ def main():
 
     model = models[args.model](z_dims=args.zdims, output=args.output)
 
-    datasets = load_celebA('datasets/celebA.hdf5').images
+    datasets = load_celebA('datasets/celebA.hdf5')
 
     # Training loop
-    samples = np.random.normal(size=(100, args.zdims)).astype(np.float32)
-    model.main_loop(datasets, samples,
+    samples = np.random.normal(size=(10, args.zdims)).astype(np.float32)
+    model.main_loop(datasets, samples, datasets.names,
         epochs=args.epoch,
         batchsize=args.batchsize,
         reporter=['loss', 'g_loss', 'd_loss'])
