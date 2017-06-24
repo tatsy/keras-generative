@@ -5,9 +5,18 @@ Keras VAEs and GANs
 
 ## Models
 
+#### Standard models
+
 * Variational autoencoder (VAE)
 * Generative adversarial network (GAN or DCGAN)
 * Energy-based GAN (EBGAN)
+* Adversarially learned inference (ALI)
+
+#### Conditional models
+
+* Conditional variational autoencoder
+* CVAE-GAN
+
 
 ## Usage
 
