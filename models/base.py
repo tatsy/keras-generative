@@ -49,7 +49,7 @@ class BaseModel(metaclass=ABCMeta):
         print('\n\n--- START TRAINING ---\n')
         num_data = len(datasets)
         for e in range(epochs):
-            perm = np.permutation(num_data, dtype=np.int32)
+            perm = np.random.permutation(num_data)
             for b in range(0, num_data, batchsize):
                 bsize = min(batchsize, num_data - b)
                 indx = perm[b:b+bsize]
