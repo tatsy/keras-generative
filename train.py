@@ -9,13 +9,14 @@ import matplotlib
 matplotlib.use('Agg')
 import numpy as np
 
-from models import VAE, DCGAN, EBGAN
+from models import VAE, DCGAN, EBGAN, ALI
 from basics import *
 
 models = {
     'vae': VAE,
     'dcgan': DCGAN,
-    'ebgan': EBGAN
+    'ebgan': EBGAN,
+    'ali': ALI
 }
 
 def main():

@@ -27,7 +27,7 @@ class CVAEGAN(CondBaseModel):
         enc_activation='sigmoid',
         dec_activation='sigmoid',
         dis_activation='sigmoid',
-        name='cvae',
+        name='cvaegan',
         **kwargs
     ):
         super(CVAEGAN, self).__init__(name=name, **kwargs)
@@ -73,7 +73,7 @@ class CVAEGAN(CondBaseModel):
         return loss
 
     def predict(self, z_samples):
-        return self.decoder.predict(z_samples)
+        return self.f_dec.predict(z_samples)
 
     def save_weights(self, out_dir, epoch, batch):
         if epoch % 10 == 0:
