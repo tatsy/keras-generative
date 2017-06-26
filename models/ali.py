@@ -144,7 +144,7 @@ class ALI(BaseModel):
         y_output = self.f_D([x_inputs, z_inputs])
         self.dis_trainer = Model([x_inputs, z_inputs], y_output)
         self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5))
         self.dis_trainer.summary()
 
         # Build generators

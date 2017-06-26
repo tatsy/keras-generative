@@ -14,8 +14,8 @@ def load_celebA(filename):
     f = h5py.File(filename)
 
     dset = Dataset()
-    dset.images = np.asarray(f['images'], 'float32')
-    dset.attribs = np.asarray(f['labels'], 'uint8')
+    dset.images = np.asarray(f['images'], 'float32') / 255.0
+    dset.attribs = np.asarray(f['labels'], 'float32')
     dset.names = np.asarray(f['label_names'])
 
     return dset
