@@ -7,6 +7,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
+from keras.models import load_model
+
 from abc import ABCMeta, abstractmethod
 
 class BaseModel(metaclass=ABCMeta):
@@ -27,6 +29,8 @@ class BaseModel(metaclass=ABCMeta):
             self.output = 'output'
         else:
             self.output = kwargs['output']
+
+        self.trainers = {}
 
     def main_loop(self, datasets, samples, epochs=100, batchsize=100, reporter=[]):
         '''
@@ -70,12 +74,14 @@ class BaseModel(metaclass=ABCMeta):
                 sys.stdout.flush()
 
                 # Save generated images
-                if (b + bsize) % 1000 == 0 or (b+ bsize) == num_data:
+                if (b + bsize) % 50000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
                     self.save_images(self, samples, outfile)
 
+            print('')
+
             # Save current weights
-            self.save_weights(wgt_out_dir, e + 1, b + bsize)
+            self.save_model(wgt_out_dir, e + 1)
 
     def make_batch(self, datasets, indx):
         '''
@@ -106,16 +112,26 @@ class BaseModel(metaclass=ABCMeta):
         fig.savefig(filename, dpi=200)
         plt.close(fig)
 
+    def save_model(self, out_dir, epoch):
+        folder = os.path.join(out_dir, 'epoch_%05d' % epoch)
+        if not os.path.isdir(folder):
+            os.mkdir(folder)
+
+        for k, v in self.trainers.items():
+            filename = os.path.join(folder, '%s.hdf5' % (k))
+            v.save(filename)
+
+    def store_to_save(self, name):
+        self.trainers[name] = getattr(self, name)
+
+    def load_model(self, folder):
+        for k, v in self.trainers.items():
+            filename = os.path.join(folder, '%s.hdf5' % (k))
+            setattr(self, k, load_model(filename))
+
     @abstractmethod
     def train_on_batch(self, x_batch):
         '''
-        No training process is defined! Plase override "train_on_batch" method in the derived model!
-        '''
-        pass
-
-    @abstractmethod
-    def save_weights(self, out_dir, epoch, batch):
-        '''
-        Model weights are not saved! To save them, override the "save_weights" method in the derived model.
+        Plase override "train_on_batch" method in the derived model!
         '''
         pass

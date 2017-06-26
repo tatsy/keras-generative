@@ -50,11 +50,6 @@ class CVAE(CondBaseModel):
     def predict(self, z_samples):
         return self.decoder.predict(z_samples)
 
-    def save_weights(self, out_dir, epoch, batch):
-        if epoch % 10 == 0:
-            self.encoder.save_weights(os.path.join(out_dir, 'enc_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-            self.decoder.save_weights(os.path.join(out_dir, 'dec_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-
     def build_model(self):
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
@@ -71,6 +66,9 @@ class CVAE(CondBaseModel):
                              optimizer=Adam(lr=2.0e-4, beta_1=0.5))
 
         self.trainer.summary()
+
+        # Store trainers
+        self.store_to_save('trianer')
 
     def build_encoder(self):
         x_inputs = Input(shape=self.input_shape)
