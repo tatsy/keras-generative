@@ -1,7 +1,7 @@
 Keras VAEs and GANs
 ===
 
-> Keras implementation of various deep generative networks such as VAE and GAN.
+Keras implementation of various deep generative networks such as VAE and GAN.
 
 ## Models
 
@@ -29,7 +29,7 @@ python train.py --model=dcgan --epoch=200 --batchsize=100 --output=output
 python train_conditional.py --model=cvaegan --epoch=200 --batchsize=100 --output=output
 ```
 
-# References
+## References
 
 * Kingma et al., "Auto-Encoding Variational Bayes", arXiv preprint 2013.
 * Goodfellow et al., "Generative adversarial nets", NIPS 2014.

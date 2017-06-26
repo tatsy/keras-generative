@@ -61,11 +61,6 @@ class DCGAN(BaseModel):
     def predict(self, z_samples):
         return self.f_gen.predict(z_samples)
 
-    def save_weights(self, out_dir, epoch, batch):
-        if epoch % 10 == 0:
-            self.f_dis.save_weights(os.path.join(out_dir, 'dis_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-            self.f_gen.save_weights(os.path.join(out_dir, 'gen_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-
     def build_model(self):
         self.f_gen = self.build_decoder()
         self.f_dis = self.build_encoder()
@@ -89,6 +84,10 @@ class DCGAN(BaseModel):
 
         self.gen_trainer.summary()
         self.dis_trainer.summary()
+
+        # Store trainers
+        self.store_to_save('gen_trainer')
+        self.store_to_save('dis_trainer')
 
     def build_encoder(self):
         inputs = Input(shape=self.input_shape)

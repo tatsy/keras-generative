@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
     parser.add_argument('--zdims', type=int, default=256)
+    parser.add_argument('--resume', type=str, default=None)
 
     args = parser.parse_args()
 
@@ -39,6 +40,9 @@ def main():
         raise Exception('Unknown model:', args.model)
 
     model = models[args.model](z_dims=args.zdims, output=args.output)
+
+    if args.resume is not None:
+        model.load_model(args.resume)
 
     datasets = load_celebA('datasets/celebA.hdf5').images
 

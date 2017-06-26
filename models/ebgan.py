@@ -94,6 +94,11 @@ class EBGAN(BaseModel):
         self.gen_trainer.summary()
         self.dis_trainer.summary()
 
+        # Store trainers
+        self.store_to_save('gen_trainer')
+        self.store_to_save('dis_trainer')
+
+
     def build_autoencoder(self):
         enc = self.build_encoder()
         dec = self.build_decoder()

@@ -77,11 +77,6 @@ class CVAEGAN(CondBaseModel):
     def predict(self, z_samples):
         return self.f_dec.predict(z_samples)
 
-    def save_weights(self, out_dir, epoch, batch):
-        if epoch % 10 == 0:
-            self.encoder.save_weights(os.path.join(out_dir, 'enc_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-            self.decoder.save_weights(os.path.join(out_dir, 'dec_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-
     def build_model(self):
         self.f_enc = self.build_encoder(output_dims=self.z_dims*2)
         self.f_dec = self.build_decoder()
@@ -151,6 +146,12 @@ class CVAEGAN(CondBaseModel):
                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5))
 
         self.ae_trainer.summary()
+
+        # Store trainers
+        self.store_to_save('cls_trainer')
+        self.store_to_save('dis_trainer')
+        self.store_to_save('gen_trainer')
+        self.store_to_save('ae_trainer')
 
     def build_encoder(self, output_dims):
         x_inputs = Input(shape=self.input_shape)
