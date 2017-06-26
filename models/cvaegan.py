@@ -24,7 +24,7 @@ class CVAEGAN(CondBaseModel):
         input_shape=(64, 64, 3),
         num_attrs=40,
         z_dims = 128,
-        enc_activation='sigmoid',
+        enc_activation='none',
         dec_activation='sigmoid',
         dis_activation='sigmoid',
         name='cvaegan',
@@ -109,6 +109,7 @@ class CVAEGAN(CondBaseModel):
         # Build generator trainer
         set_trainable(self.f_cls, False)
         set_trainable(self.f_dis, False)
+        set_trainable(self.f_enc, False)
 
         x_inputs = Input(shape=self.input_shape)
         c_inputs = Input(shape=(self.num_attrs,))
@@ -140,6 +141,8 @@ class CVAEGAN(CondBaseModel):
 
         # Build autoencoder
         set_trainable(self.f_dec, False)
+        set_trainable(self.f_enc, True)
+
         self.ae_trainer = Model(inputs=[x_inputs, c_inputs],
                                 outputs=[x_rec_from_x])
         self.ae_trainer.compile(loss=self.autoencoder_loss(x_inputs, x_rec_from_x, z_avg, z_log_var),
@@ -171,7 +174,8 @@ class CVAEGAN(CondBaseModel):
         x = Activation('relu')(x)
 
         x = Dense(output_dims)(x)
-        x = Activation(self.enc_activation)(x)
+        if self.enc_activation != 'none':
+            x = Activation(self.enc_activation)(x)
 
         return Model([x_inputs, a_inputs], x, name='encoder')
 
