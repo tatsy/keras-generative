@@ -13,13 +13,6 @@ from keras import backend as K
 from .utils import set_trainable
 from .base import BaseModel
 
-def sample_normal(args):
-    z_avg, z_log_var = args
-    batch_size = K.shape(z_avg)[0]
-    z_dims = K.shape(z_avg)[1]
-    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
-    return z_avg + K.exp(z_log_var / 2.0) * eps
-
 class BasicConvLayer(Layer):
     def __init__(self,
         conv_type,
@@ -60,15 +53,15 @@ class BasicConvLayer(Layer):
         if self.bn:
             x = BatchNormalization()(x)
 
-        if self.dropout > 0.0:
-            x = Dropout(self.dropout)(x)
-
         if self.activation == 'leaky_relu':
             x = LeakyReLU(0.02)(x)
         elif self.activation == 'elu':
             x = ELU()(x)
         else:
             x = Activation(self.activation)(x)
+
+        if self.dropout > 0.0:
+            x = Dropout(self.dropout)(x)
 
         return x
 
@@ -118,7 +111,7 @@ class ALI(BaseModel):
         g_loss = g_x_loss + g_z_loss
 
         x_fake = self.f_Gx.predict_on_batch(z_real)
-        z_fake = self.f_Gz.predict_on_batch(x_real)[:, :self.z_dims]
+        z_fake = self.f_Gz.predict_on_batch(x_real)
 
         d_x_loss = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
         d_z_loss = self.dis_trainer.train_on_batch([x_fake, z_real], y_neg)
@@ -153,11 +146,7 @@ class ALI(BaseModel):
         x_real = Input(shape=self.input_shape)
         z_real = Input(shape=(self.z_dims,))
 
-        z_params = self.f_Gz(x_real)
-        z_avg = Lambda(lambda x: x[:, :self.z_dims], output_shape=(self.z_dims,))(z_params)
-        z_log_var = Lambda(lambda x: x[:, self.z_dims:], output_shape=(self.z_dims,))(z_params)
-
-        z_fake = Lambda(sample_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
+        z_fake = self.f_Gz(x_real)
         x_fake = self.f_Gx(z_real)
 
         y_x_real_z_fake = self.f_D([x_real, z_fake])
@@ -186,7 +175,7 @@ class ALI(BaseModel):
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=512, kernel_size=(4, 4), bn=True)(x)
-        x = BasicConvLayer(conv_type='conv', filters=self.z_dims * 2, kernel_size=(1, 1), activation='linear')(x)
+        x = BasicConvLayer(conv_type='conv', filters=self.z_dims, kernel_size=(1, 1), activation='linear')(x)
 
         x = Flatten()(x)
 
