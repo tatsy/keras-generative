@@ -106,22 +106,24 @@ class ALI(BaseModel):
 
         z_real = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
 
-        g_x_loss = self.gen_x_trainer.train_on_batch([x_real, z_real], y_neg)
-        g_z_loss = self.gen_z_trainer.train_on_batch([x_real, z_real], y_pos)
+        g_x_loss, g_x_acc = self.gen_x_trainer.train_on_batch([x_real, z_real], y_neg)
+        g_z_loss, g_z_acc = self.gen_z_trainer.train_on_batch([x_real, z_real], y_pos)
         g_loss = g_x_loss + g_z_loss
+        g_acc = 0.5 * (g_x_acc + g_z_acc)
 
         x_fake = self.f_Gx.predict_on_batch(z_real)
         z_fake = self.f_Gz.predict_on_batch(x_real)
 
-        d_x_loss, acc_real = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
-        d_z_loss, acc_fake = self.dis_trainer.train_on_batch([x_fake, z_real], y_neg)
+        d_x_loss, d_x_acc = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
+        d_z_loss, d_z_acc = self.dis_trainer.train_on_batch([x_fake, z_real], y_neg)
         d_loss = d_x_loss + d_z_loss
+        d_acc = 0.5 * (d_x_acc + d_z_acc)
 
         losses = {
             'g_loss': g_loss,
             'd_loss': d_loss,
-            'acc_real': acc_real,
-            'acc_fake': acc_fake
+            'g_acc': g_acc,
+            'd_acc': d_acc
         }
         return losses
 
@@ -157,12 +159,14 @@ class ALI(BaseModel):
 
         self.gen_x_trainer = Model([x_real, z_real], y_x_real_z_fake)
         self.gen_x_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5),
+                                   metrics=['accuracy'])
         self.gen_x_trainer.summary()
 
         self.gen_z_trainer = Model([x_real, z_real], y_x_fake_z_real)
         self.gen_z_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5),
+                                   metrics=['accuracy'])
         self.gen_z_trainer.summary()
 
         # Store trainers

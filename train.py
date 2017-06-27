@@ -51,7 +51,7 @@ def main():
     model.main_loop(datasets, samples,
         epochs=args.epoch,
         batchsize=args.batchsize,
-        reporter=['loss', 'g_loss', 'd_loss', 'acc_real', 'acc_fake'])
+        reporter=['loss', 'g_loss', 'd_loss', 'g_acc', 'd_acc'])
 
 if __name__ == '__main__':
     main()
