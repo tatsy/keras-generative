@@ -99,9 +99,9 @@ class ALI(BaseModel):
 
     def train_on_batch(self, x_real):
         batchsize = len(x_real)
-        y_pos = np.zeros(batchsize, dtype=np.int32)
+        y_pos = np.ones(batchsize, dtype=np.int32)
         y_pos = keras.utils.to_categorical(y_pos, 2)
-        y_neg = np.ones(batchsize, dtype=np.int32)
+        y_neg = np.zeros(batchsize, dtype=np.int32)
         y_neg = keras.utils.to_categorical(y_neg, 2)
 
         z_real = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
@@ -109,7 +109,7 @@ class ALI(BaseModel):
         g_x_loss, g_x_acc = self.gen_x_trainer.train_on_batch([x_real, z_real], y_neg)
         g_z_loss, g_z_acc = self.gen_z_trainer.train_on_batch([x_real, z_real], y_pos)
         g_loss = g_x_loss + g_z_loss
-        g_acc = 0.5 * (g_x_acc + g_z_acc)
+        g_acc = g_z_acc
 
         x_fake = self.f_Gx.predict_on_batch(z_real)
         z_fake = self.f_Gz.predict_on_batch(x_real)
@@ -117,7 +117,7 @@ class ALI(BaseModel):
         d_x_loss, d_x_acc = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
         d_z_loss, d_z_acc = self.dis_trainer.train_on_batch([x_fake, z_real], y_neg)
         d_loss = d_x_loss + d_z_loss
-        d_acc = 0.5 * (d_x_acc + d_z_acc)
+        d_acc = d_x_acc
 
         losses = {
             'g_loss': g_loss,
@@ -141,7 +141,7 @@ class ALI(BaseModel):
         y_output = self.f_D([x_inputs, z_inputs])
         self.dis_trainer = Model([x_inputs, z_inputs], y_output)
         self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5),
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.1),
                                  metrics=['accuracy'])
         self.dis_trainer.summary()
 
@@ -159,13 +159,13 @@ class ALI(BaseModel):
 
         self.gen_x_trainer = Model([x_real, z_real], y_x_real_z_fake)
         self.gen_x_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5),
+                                   optimizer=Adam(lr=2.0e-4, beta_1=0.5),
                                    metrics=['accuracy'])
         self.gen_x_trainer.summary()
 
         self.gen_z_trainer = Model([x_real, z_real], y_x_fake_z_real)
         self.gen_z_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=1.0e-4, beta_1=0.5),
+                                   optimizer=Adam(lr=2.0e-4, beta_1=0.5),
                                    metrics=['accuracy'])
         self.gen_z_trainer.summary()
 
@@ -218,7 +218,7 @@ class ALI(BaseModel):
         xz = Concatenate(axis=-1)([x, z])
         xz = BasicConvLayer(conv_type='conv', filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
         xz = BasicConvLayer(conv_type='conv', filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
-        xz = BasicConvLayer(conv_type='conv', filters=2, kernel_size=(1, 1), dropout=0.2, activation='sigmoid')(xz)
+        xz = BasicConvLayer(conv_type='conv', filters=2, kernel_size=(1, 1), dropout=0.2, activation='softmax')(xz)
 
         xz = Flatten()(xz)
 
