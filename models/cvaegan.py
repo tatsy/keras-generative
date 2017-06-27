@@ -24,7 +24,7 @@ class CVAEGAN(CondBaseModel):
         input_shape=(64, 64, 3),
         num_attrs=40,
         z_dims = 128,
-        enc_activation='none',
+        enc_activation='linear',
         dec_activation='sigmoid',
         dis_activation='sigmoid',
         name='cvaegan',
@@ -92,7 +92,7 @@ class CVAEGAN(CondBaseModel):
         self.cls_trainer = Model(inputs=[x_real, x_fake],
                                  outputs=[c_pred_real])
         self.cls_trainer.compile(loss=self.classifier_loss(c_pred_real, c_pred_fake),
-                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
 
         self.cls_trainer.summary()
 
@@ -102,7 +102,7 @@ class CVAEGAN(CondBaseModel):
         self.dis_trainer = Model(inputs=[x_real, x_fake],
                                  outputs=[y_pred_real])
         self.dis_trainer.compile(loss=self.discriminator_loss(y_pred_real, y_pred_fake),
-                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5))
+                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
 
         self.dis_trainer.summary()
 
@@ -174,8 +174,7 @@ class CVAEGAN(CondBaseModel):
         x = Activation('relu')(x)
 
         x = Dense(output_dims)(x)
-        if self.enc_activation != 'none':
-            x = Activation(self.enc_activation)(x)
+        x = Activation(self.enc_activation)(x)
 
         return Model([x_inputs, a_inputs], x, name='encoder')
 
@@ -184,15 +183,15 @@ class CVAEGAN(CondBaseModel):
         a_inputs = Input(shape=(self.num_attrs,))
         x = Concatenate()([x_inputs, a_inputs])
 
-        x = Dense(4 * 4 * 256)(x)
+        x = Dense(4 * 4 * 512)(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 256))(x)
+        x = Reshape((4, 4, 512))(x)
 
+        x = self.basic_decode_layer(x, filters=512)
         x = self.basic_decode_layer(x, filters=256)
         x = self.basic_decode_layer(x, filters=128)
-        x = self.basic_decode_layer(x, filters=64)
         x = self.basic_decode_layer(x, filters=3, activation=self.dec_activation)
 
         return Model([x_inputs, a_inputs], x, name='decoder')
@@ -200,10 +199,10 @@ class CVAEGAN(CondBaseModel):
     def build_discriminator(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encode_layer(inputs, filters=64)
-        x = self.basic_encode_layer(x, filters=128)
+        x = self.basic_encode_layer(inputs, filters=128)
         x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=256)
+        x = self.basic_encode_layer(x, filters=512)
+        x = self.basic_encode_layer(x, filters=512)
 
         x = Flatten()(x)
         x = Dense(1024)(x)
@@ -217,10 +216,10 @@ class CVAEGAN(CondBaseModel):
     def build_classifier(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encode_layer(inputs, filters=64)
-        x = self.basic_encode_layer(x, filters=128)
+        x = self.basic_encode_layer(inputs, filters=128)
         x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=256)
+        x = self.basic_encode_layer(x, filters=512)
+        x = self.basic_encode_layer(x, filters=512)
 
         x = Flatten()(x)
         x = Dense(1024)(x)

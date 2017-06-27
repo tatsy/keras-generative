@@ -85,8 +85,8 @@ def main():
         num_labels = len(label_names)
 
         lines = lines[2:]
-        labels = np.ndarray((10000, num_labels), dtype='uint8')
-        for i in range(10000):
+        labels = np.ndarray((num_images, num_labels), dtype='uint8')
+        for i in range(num_images):
             label = [int(l) for l in re.split('\s+', lines[i])[1:]]
             label = np.maximum(0, label).astype(np.uint8)
             labels[i] = label
