@@ -85,7 +85,7 @@ def main():
         num_labels = len(label_names)
 
         lines = lines[2:]
-        labels = np.ndarray((10000, num_labels), np.uint8)
+        labels = np.ndarray((10000, num_labels), dtype='uint8')
         for i in range(10000):
             label = [int(l) for l in re.split('\s+', lines[i])[1:]]
             label = np.maximum(0, label).astype(np.uint8)
@@ -100,20 +100,19 @@ def main():
         num_images = len(image_files)
         print('%d images' % (num_images))
 
-        image_data = np.ndarray((num_images, 64, 64, 3), dtype='float32')
+        image_data = np.ndarray((num_images, 64, 64, 3), dtype='uint8')
         for i, f in enumerate(image_files):
             image = Image.open(zf.open(f, 'r')).resize((64, 78), Image.ANTIALIAS).crop((0, 7, 64, 64 + 7))
-            image = np.asarray(image) / 255.0
-            image = image.astype(dtype='float32')
+            image = np.asarray(image, dtype='uint8')
             image_data[i] = image
             print('%d / %d' % (i + 1, num_images), end='\r', flush=True)
 
     # Create HDF5 file
-    h5 = h5py.File(outfile, 'a')
+    h5 = h5py.File(outfile, 'w')
     string_dt = h5py.special_dtype(vlen=str)
-    dset = h5.create_dataset('images', data=image_data)
+    dset = h5.create_dataset('images', data=image_data, dtype='uint8')
     dset = h5.create_dataset('label_names', data=label_names, dtype=string_dt)
-    dset = h5.create_dataset('labels', data=labels)
+    dset = h5.create_dataset('labels', data=labels, dtype='uint8')
 
     h5.flush()
     h5.close()
