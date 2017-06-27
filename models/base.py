@@ -67,9 +67,9 @@ class BaseModel(metaclass=ABCMeta):
                 print('\rEpoch #%d | %d / %d (%6.2f %%) ' % \
                       (e + 1, b + bsize, num_data, ratio), end='')
 
-                for k in reporter:
-                    if k in losses:
-                        print('| %s = %8.6f ' % (k, losses[k]), end='')
+                for k, loss in losses.items():
+                    if reporter == 'all' or k in reporter:
+                        print('| %s = %8.6f ' % (k, loss), end='')
 
                 sys.stdout.flush()
 
