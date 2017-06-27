@@ -119,7 +119,7 @@ class BaseModel(metaclass=ABCMeta):
 
         for k, v in self.trainers.items():
             filename = os.path.join(folder, '%s.hdf5' % (k))
-            v.save(filename)
+            v.save_weights(filename)
 
     def store_to_save(self, name):
         self.trainers[name] = getattr(self, name)
@@ -127,7 +127,7 @@ class BaseModel(metaclass=ABCMeta):
     def load_model(self, folder):
         for k, v in self.trainers.items():
             filename = os.path.join(folder, '%s.hdf5' % (k))
-            setattr(self, k, load_model(filename))
+            getattr(self, k).load_weights(filename)
 
     @abstractmethod
     def train_on_batch(self, x_batch):

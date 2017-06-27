@@ -291,8 +291,8 @@ class CVAEGAN(CondBaseModel):
         def lossfun(y0, y1):
             size = K.shape(x_true)[1:]
             scale = K.cast(K.prod(size), 'float32')
-            entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred)) * scale
-            kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1))
+            entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred))
+            kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1)) / scale
             return entropy + kl_loss
 
         return lossfun

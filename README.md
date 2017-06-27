@@ -19,7 +19,12 @@ Keras implementation of various deep generative networks such as VAE and GAN.
 
 ## Usage
 
-Example programs are included in ``examples`` directory. These programs can be used as
+#### Prepare datasets
+
+First, download ``img_align_celeba.zip`` and ``list_attr_celeba.txt`` from CelebA [webpage](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html).
+Then, place these files to ``datasets`` and run ``create_database.py`` on ``databsets`` directory.
+
+#### Training
 
 ```shell
 # Standard models
