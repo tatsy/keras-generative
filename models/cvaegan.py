@@ -2,6 +2,7 @@ import os
 import numpy as np
 
 import keras
+from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape, Concatenate
 from keras.layers import Activation, LeakyReLU, ELU
@@ -12,12 +13,132 @@ from keras import backend as K
 from .utils import set_trainable
 from .cond_base import CondBaseModel
 
-def draw_normal(args):
+def sample_normal(args):
     z_avg, z_log_var = args
     batch_size = K.shape(z_avg)[0]
     z_dims = K.shape(z_avg)[1]
     eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
     return z_avg + K.exp(z_log_var / 2.0) * eps
+
+def zero_loss(y_true, y_pred):
+    return K.zeros_like(y_true)
+
+
+class ClassifierLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(ClassifierLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, c_true, c_real, c_fake):
+        loss_real = keras.metrics.binary_crossentropy(c_true, c_real)
+        loss_fake = keras.metrics.binary_crossentropy(c_true, c_fake)
+        return K.mean(loss_real - loss_fake)
+
+    def call(self, inputs):
+        c_true = inputs[0]
+        c_real = inputs[1]
+        c_fake = inputs[2]
+        loss = self.lossfun(c_true, c_real, c_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return c_true
+
+class DiscriminatorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(DiscriminatorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_real, y_fake):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.zeros_like(y_real)
+        loss_real = keras.metrics.binary_crossentropy(y_pos, y_real)
+        loss_fake = keras.metrics.binary_crossentropy(y_neg, y_fake)
+        return K.mean(loss_real + loss_fake)
+
+    def call(self, inputs):
+        y_real = inputs[0]
+        y_fake = inputs[1]
+        loss = self.lossfun(y_real, y_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_real
+
+class GeneratorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(GeneratorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self,
+        x_inputs, x_rec_from_x,
+        y_pred_from_data, y_pred_from_x, y_pred_from_z,
+        c_pred_from_data, c_pred_from_x, c_pred_from_z):
+
+        loss_GD = K.mean(K.square(y_pred_from_data - y_pred_from_z))
+        loss_GC = K.mean(K.square(c_pred_from_data - c_pred_from_z))
+        loss_G = K.mean(K.square(x_inputs - x_rec_from_x)) + \
+                 K.mean(K.square(y_pred_from_data - y_pred_from_x)) + \
+                 K.mean(K.square(c_pred_from_data - c_pred_from_x))
+
+        return loss_GD + loss_GC + loss_G
+
+        return lossfun
+
+    def call(self, inputs):
+        x_inputs = inputs[0]
+        x_rec_from_x = inputs[1]
+        y_pred_from_data = inputs[2]
+        y_pred_from_x = inputs[3]
+        y_pred_from_z = inputs[4]
+        c_pred_from_data = inputs[5]
+        c_pred_from_x = inputs[6]
+        c_pred_from_z = inputs[7]
+
+        loss = self.lossfun(x_inputs, x_rec_from_x,
+                            y_pred_from_data, y_pred_from_x, y_pred_from_z,
+                            c_pred_from_data, c_pred_from_x, c_pred_from_z)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_pred_from_data
+
+class AutoEncoderLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(AutoEncoderLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, x_true, x_pred, z_avg, z_log_var):
+        scale = K.cast(K.prod(K.shape(x_true)[1:]), 'float32')
+        entropy = keras.metrics.binary_crossentropy(x_true, x_pred) * scale
+        kl_loss = -0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1)
+        return K.mean(entropy) + K.mean(kl_loss)
+
+    def call(self, inputs):
+        x_true = inputs[0]
+        x_pred = inputs[1]
+        z_avg = inputs[2]
+        z_log_var = inputs[3]
+        loss = self.lossfun(x_true, x_pred, z_avg, z_log_var)
+        self.add_loss(loss, inputs=inputs)
+
+        return x_true
+
+def discriminator_accuracy(y_real, y_fake):
+    def accfun(y0, y1):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.ones_like(y_fake)
+        loss_real = keras.metrics.binary_accuracy(y_pos, y_real)
+        loss_fake = keras.metrics.binary_accuracy(y_neg, y_fake)
+        return 0.5 * K.mean(loss_real + loss_fake)
+
+    return accfun
+
+def generator_accuracy(y_pred_from_x, y_pred_from_z):
+    def accfun(y0, y1):
+        y_pos = K.ones_like(y_pred_from_x)
+        loss_x = keras.metrics.binary_accuracy(y_pos, y_pred_from_x)
+        loss_z = keras.metrics.binary_accuracy(y_pos, y_pred_from_z)
+        return 0.5 * K.mean(loss_x + loss_z)
+
+    return accfun
 
 class CVAEGAN(CondBaseModel):
     def __init__(self,
@@ -54,23 +175,23 @@ class CVAEGAN(CondBaseModel):
         ae_loss = self.ae_trainer.train_on_batch([x_image, x_attr], x_image)
 
         # Train generator
-        g_loss = self.gen_trainer.train_on_batch([x_image, z_rand, x_attr], x_image)
+        g_loss, g_acc = self.gen_trainer.train_on_batch([x_image, z_rand, x_attr], x_image)
 
         # Generate fake sample
         x_fake = self.f_dec.predict_on_batch([z_rand, x_attr])
 
         # Train classifier
-        c_loss = self.cls_trainer.train_on_batch([x_image, x_fake], x_attr)
+        c_loss = self.cls_trainer.train_on_batch([x_image, x_fake, x_attr], x_attr)
 
         # Train discriminator
         y_pos = np.ones((batchsize, self.z_dims), dtype='float32')
-        d_loss = self.dis_trainer.train_on_batch([x_image, x_fake], y_pos)
+        d_loss, d_acc = self.dis_trainer.train_on_batch([x_image, x_fake], y_pos)
 
         loss = {
             'g_loss': g_loss,
             'd_loss': d_loss,
-            'c_loss': c_loss,
-            'ae_loss': ae_loss
+            'g_acc': g_acc,
+            'd_acc': d_acc
         }
         return loss
 
@@ -86,24 +207,29 @@ class CVAEGAN(CondBaseModel):
         # Build classfier trainer
         x_real = Input(shape=self.input_shape)
         x_fake = Input(shape=self.input_shape)
+        c_true = Input(shape=(self.num_attrs,))
         c_pred_real = self.f_cls(x_real)
         c_pred_fake = self.f_cls(x_fake)
 
-        self.cls_trainer = Model(inputs=[x_real, x_fake],
-                                 outputs=[c_pred_real])
-        self.cls_trainer.compile(loss=self.classifier_loss(c_pred_real, c_pred_fake),
-                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
+        c_loss = ClassifierLossLayer()([c_true, c_pred_real, c_pred_fake])
 
+        self.cls_trainer = Model(inputs=[x_real, x_fake, c_true],
+                                 outputs=c_loss)
+        self.cls_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
         self.cls_trainer.summary()
 
         # Build discriminator trainer
         y_pred_real = self.f_dis(x_real)
         y_pred_fake = self.f_dis(x_fake)
-        self.dis_trainer = Model(inputs=[x_real, x_fake],
-                                 outputs=[y_pred_real])
-        self.dis_trainer.compile(loss=self.discriminator_loss(y_pred_real, y_pred_fake),
-                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
 
+        d_loss = DiscriminatorLossLayer()([y_pred_real, y_pred_fake])
+
+        self.dis_trainer = Model(inputs=[x_real, x_fake],
+                                 outputs=d_loss)
+        self.dis_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2),
+                                 metrics=[discriminator_accuracy(y_pred_real, y_pred_fake)])
         self.dis_trainer.summary()
 
         # Build generator trainer
@@ -119,7 +245,7 @@ class CVAEGAN(CondBaseModel):
         z_avg = Lambda(lambda x: x[:, :self.z_dims], output_shape=(self.z_dims,))(z_params)
         z_log_var = Lambda(lambda x: x[:, self.z_dims:], output_shape=(self.z_dims,))(z_params)
 
-        z_from_x = Lambda(draw_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
+        z_from_x = Lambda(sample_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
         x_rec_from_x = self.f_dec([z_from_x, c_inputs])
         x_rec_from_z = self.f_dec([z_inputs, c_inputs])
 
@@ -131,23 +257,26 @@ class CVAEGAN(CondBaseModel):
         c_pred_from_z = self.f_cls(x_rec_from_z)
         c_pred_from_data = self.f_cls(x_inputs)
 
+        g_loss = GeneratorLossLayer()([x_inputs, x_rec_from_x,
+                                       y_pred_from_data, y_pred_from_x, y_pred_from_z,
+                                       c_pred_from_data, c_pred_from_x, c_pred_from_z])
+
         self.gen_trainer = Model(inputs=[x_inputs, z_inputs, c_inputs],
-                                 outputs=x_rec_from_x)
-        self.gen_trainer.compile(
-            loss=self.generator_loss(x_inputs, x_rec_from_x,
-                                     y_pred_from_data, y_pred_from_x, y_pred_from_z,
-                                     c_pred_from_data, c_pred_from_x, c_pred_from_z),
-            optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+                                 outputs=[g_loss])
+        self.gen_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5),
+                                 metrics=[generator_accuracy(y_pred_from_x, y_pred_from_z)])
 
         # Build autoencoder
         set_trainable(self.f_dec, False)
         set_trainable(self.f_enc, True)
 
-        self.ae_trainer = Model(inputs=[x_inputs, c_inputs],
-                                outputs=[x_rec_from_x])
-        self.ae_trainer.compile(loss=self.autoencoder_loss(x_inputs, x_rec_from_x, z_avg, z_log_var),
-                                optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+        ae_loss = AutoEncoderLossLayer()([x_inputs, x_rec_from_x, z_avg, z_log_var])
 
+        self.ae_trainer = Model(inputs=[x_inputs, c_inputs],
+                                outputs=[ae_loss])
+        self.ae_trainer.compile(loss=[zero_loss],
+                                optimizer=Adam(lr=1.0e-4, beta_1=0.5))
         self.ae_trainer.summary()
 
         # Store trainers
@@ -251,47 +380,3 @@ class CVAEGAN(CondBaseModel):
 
         x = UpSampling2D(size=(2, 2))(x)
         return x
-
-    def classifier_loss(self, c_real, c_fake):
-        def lossfun(c_data, unused):
-            loss_real = K.mean(keras.metrics.binary_crossentropy(c_data, c_real), axis=-1)
-            loss_fake = K.mean(keras.metrics.binary_crossentropy(c_data, c_fake), axis=-1)
-            return loss_real - loss_fake
-
-        return lossfun
-
-    def discriminator_loss(self, y_real, y_fake):
-        def lossfun(y0, y1):
-            y_pos = K.ones_like(y_real)
-            y_neg = K.zeros_like(y_real)
-            loss_real = K.mean(keras.metrics.binary_crossentropy(y_pos, y_real), axis=-1)
-            loss_fake = K.mean(keras.metrics.binary_crossentropy(y_neg, y_fake), axis=-1)
-            return loss_real + loss_fake
-
-        return lossfun
-
-    def generator_loss(self,
-        x_inputs, x_rec_from_x,
-        y_pred_from_data, y_pred_from_x, y_pred_from_z,
-        c_pred_from_data, c_pred_from_x, c_pred_from_z
-    ):
-        def lossfun(y0, y1):
-            loss_GD = K.mean(K.square(y_pred_from_data - y_pred_from_z))
-            loss_GC = K.mean(K.square(c_pred_from_data - c_pred_from_z))
-            loss_G = K.mean(K.square(x_inputs - x_rec_from_x)) + \
-                     K.mean(K.square(y_pred_from_data - y_pred_from_x)) + \
-                     K.mean(K.square(c_pred_from_data - c_pred_from_x))
-
-            return loss_GD + loss_GC + loss_G
-
-        return lossfun
-
-    def autoencoder_loss(self, x_true, x_pred, z_avg, z_log_var):
-        def lossfun(y0, y1):
-            size = K.shape(x_true)[1:]
-            scale = K.cast(K.prod(size), 'float32')
-            entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred))
-            kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1)) / scale
-            return entropy + kl_loss
-
-        return lossfun
