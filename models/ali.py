@@ -6,77 +6,181 @@ from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape, Concatenate
 from keras.layers import Activation, LeakyReLU, ELU
-from keras.layers import Conv2D, Deconv2D, BatchNormalization, Dropout
-from keras.optimizers import Adam
+from keras.layers import Conv2D, Conv2DTranspose, BatchNormalization, Dropout
+from keras.optimizers import Adam, Adadelta
 from keras import backend as K
 
 from .utils import set_trainable
 from .base import BaseModel
 
-class BasicConvLayer(Layer):
-    def __init__(self,
-        conv_type,
-        filters,
-        kernel_size=(3, 3),
-        strides=(1, 1),
-        bn=False,
-        dropout=0.0,
-        activation='leaky_relu',
-        **kwargs
-    ):
-        super(BasicConvLayer, self).__init__(**kwargs)
-        self.conv_type = conv_type
-        self.filters = filters
-        self.kernel_size = kernel_size
-        self.strides = strides
-        self.bn = bn
-        self.dropout = dropout
-        self.activation = activation
+def sample_normal(args):
+    z_avg, z_log_var = args
+    batch_size = K.shape(z_avg)[0]
+    z_dims = K.shape(z_avg)[1]
+    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
+    return z_avg + K.exp(z_log_var / 2.0) * eps
 
-    def build(self, input_shape):
-        if self.conv_type == 'conv':
-            self.conv = Conv2D(filters=self.filters,
-                               kernel_size=self.kernel_size,
-                               strides=self.strides)
-        elif self.conv_type == 'deconv':
-            self.conv = Deconv2D(filters=self.filters,
-                                 kernel_size=self.kernel_size,
-                                 strides=self.strides)
+def zero_loss(y_true, y_pred):
+    return K.zeros_like(y_true)
+
+def BasicConvLayer(
+    conv_type,
+    filters,
+    kernel_size=(3, 3),
+    strides=(1, 1),
+    bn=False,
+    dropout=0.0,
+    activation='leaky_relu'):
+
+    def fun(inputs):
+        if conv_type == 'conv':
+            x = Conv2D(filters=filters,
+                       kernel_size=kernel_size,
+                       strides=strides)(inputs)
+        elif conv_type == 'deconv':
+            x = Conv2DTranspose(filters=filters,
+                                kernel_size=kernel_size,
+                                strides=strides)(inputs)
         else:
-            raise Exception(self.conv_type, 'is not supported!')
+            raise Exception(conv_type, 'is not supported!')
 
-        self.trainable_weights = self.conv.trainable_weights
-
-    def call(self, x, mask=None):
-        x = self.conv(x)
-
-        if self.bn:
+        if bn:
             x = BatchNormalization()(x)
 
-        if self.activation == 'leaky_relu':
+        if activation == 'leaky_relu':
             x = LeakyReLU(0.02)(x)
-        elif self.activation == 'elu':
+        elif activation == 'elu':
             x = ELU()(x)
         else:
-            x = Activation(self.activation)(x)
+            x = Activation(activation)(x)
 
-        if self.dropout > 0.0:
-            x = Dropout(self.dropout)(x)
+        if dropout > 0.0:
+            x = Dropout(dropout)(x)
 
         return x
 
-    def compute_output_shape(self, input_shape):
-        return self.conv.compute_output_shape(input_shape)
+    return fun
 
-    def get_output_shape_for(self, input_shape):
-        return self.conv.get_output_shape_for(input_shape)
+# class BasicConvLayer(Layer):
+#     def __init__(self,
+#         conv_type,
+#         filters,
+#         kernel_size=(3, 3),
+#         strides=(1, 1),
+#         bn=False,
+#         dropout=0.0,
+#         activation='leaky_relu',
+#         **kwargs
+#     ):
+#         super(BasicConvLayer, self).__init__(**kwargs)
+#         self.conv_type = conv_type
+#         self.filters = filters
+#         self.kernel_size = kernel_size
+#         self.strides = strides
+#         self.bn = bn
+#         self.dropout = dropout
+#         self.activation = activation
+#
+#     def build(self, input_shape):
+#         if self.conv_type == 'conv':
+#             self.conv = Conv2D(filters=self.filters,
+#                                kernel_size=self.kernel_size,
+#                                strides=self.strides)
+#         elif self.conv_type == 'deconv':
+#             self.conv = Conv2DTranspose(filters=self.filters,
+#                                         kernel_size=self.kernel_size,
+#                                         strides=self.strides)
+#         else:
+#             raise Exception(self.conv_type, 'is not supported!')
+#
+#         self.trainable_weights = self.conv.trainable_weights
+#
+#     def call(self, x, mask=None):
+#         x = self.conv(x)
+#
+#         if self.bn:
+#             x = BatchNormalization()(x)
+#
+#         if self.activation == 'leaky_relu':
+#             x = LeakyReLU(0.02)(x)
+#         elif self.activation == 'elu':
+#             x = ELU()(x)
+#         else:
+#             x = Activation(self.activation)(x)
+#
+#         if self.dropout > 0.0:
+#             x = Dropout(self.dropout)(x)
+#
+#         return x
+#
+#     def compute_output_shape(self, input_shape):
+#         return self.conv.compute_output_shape(input_shape)
+#
+#     def get_output_shape_for(self, input_shape):
+#         return self.conv.get_output_shape_for(input_shape)
+
+class DiscriminatorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(DiscriminatorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_real, y_fake):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.zeros_like(y_fake)
+
+        loss_real = keras.metrics.binary_crossentropy(y_pos, y_real)
+        loss_fake = keras.metrics.binary_crossentropy(y_neg, y_fake)
+
+        return K.mean(loss_real + loss_fake)
+
+    def call(self, inputs):
+        y_real = inputs[0]
+        y_fake = inputs[1]
+        loss = self.lossfun(y_real, y_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_real
+
+class GeneratorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(GeneratorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_real, y_fake):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.zeros_like(y_fake)
+
+        loss_fake = keras.metrics.binary_crossentropy(y_pos, y_fake)
+        loss_real = keras.metrics.binary_crossentropy(y_neg, y_real)
+
+        return K.mean(loss_real + loss_fake)
+
+    def call(self, inputs):
+        y_real = inputs[0]
+        y_fake = inputs[1]
+        loss = self.lossfun(y_real, y_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_real
+
+def discriminator_accuracy(y_real, y_fake):
+    y_pos = K.ones_like(y_real)
+    y_neg = K.zeros_like(y_fake)
+    acc_real = keras.metrics.binary_accuracy(y_pos, y_real)
+    acc_fake = keras.metrics.binary_accuracy(y_neg, y_fake)
+    return 0.5 * K.mean(acc_real + acc_fake)
+
+def generator_accuracy(y_real, y_fake):
+    y_pos = K.ones_like(y_fake)
+    y_neg = K.zeros_like(y_real)
+    acc_fake = keras.metrics.binary_accuracy(y_pos, y_fake)
+    acc_real = keras.metrics.binary_accuracy(y_neg, y_real)
+    return 0.5 * K.mean(acc_real + acc_fake)
 
 class ALI(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
-        enc_activation='sigmoid',
-        dec_activation='sigmoid',
         name='ali',
         **kwargs
     ):
@@ -84,15 +188,12 @@ class ALI(BaseModel):
 
         self.input_shape = input_shape
         self.z_dims = z_dims
-        self.enc_activation = enc_activation
-        self.dec_activation = dec_activation
 
         self.f_Gz = None
         self.f_Gx = None
         self.f_D = None
 
-        self.gen_x_trainer = None
-        self.gen_z_trainer = None
+        self.gen_trainer = None
         self.dis_trainer = None
 
         self.build_model()
@@ -100,24 +201,12 @@ class ALI(BaseModel):
     def train_on_batch(self, x_real):
         batchsize = len(x_real)
         y_pos = np.ones(batchsize, dtype=np.int32)
-        y_pos = keras.utils.to_categorical(y_pos, 2)
         y_neg = np.zeros(batchsize, dtype=np.int32)
-        y_neg = keras.utils.to_categorical(y_neg, 2)
 
-        z_real = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
+        z_fake = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
 
-        g_x_loss, g_x_acc = self.gen_x_trainer.train_on_batch([x_real, z_real], y_neg)
-        g_z_loss, g_z_acc = self.gen_z_trainer.train_on_batch([x_real, z_real], y_pos)
-        g_loss = g_x_loss + g_z_loss
-        g_acc = g_z_acc
-
-        x_fake = self.f_Gx.predict_on_batch(z_real)
-        z_fake = self.f_Gz.predict_on_batch(x_real)
-
-        d_x_loss, d_x_acc = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
-        d_z_loss, d_z_acc = self.dis_trainer.train_on_batch([x_fake, z_real], y_neg)
-        d_loss = d_x_loss + d_z_loss
-        d_acc = d_x_acc
+        g_loss, g_acc = self.gen_trainer.train_on_batch([x_real, z_fake], y_pos)
+        d_loss, d_acc = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
 
         losses = {
             'g_loss': g_loss,
@@ -135,44 +224,50 @@ class ALI(BaseModel):
         self.f_Gx = self.build_Gx()
         self.f_D = self.build_D()
 
+        self.f_Gz.summary()
+        self.f_Gx.summary()
+        self.f_D.summary()
+
         # Build discriminator
-        x_inputs = Input(shape=self.input_shape)
-        z_inputs = Input(shape=(self.z_dims,))
-        y_output = self.f_D([x_inputs, z_inputs])
-        self.dis_trainer = Model([x_inputs, z_inputs], y_output)
-        self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=1.0e-7, beta_1=0.1),
-                                 metrics=['accuracy'])
+        set_trainable(self.f_Gz, False)
+        set_trainable(self.f_Gx, False)
+        set_trainable(self.f_D, True)
+
+        x_real = Input(shape=self.input_shape)
+        z_fake = Input(shape=(self.z_dims,))
+
+        x_fake = self.f_Gx(z_fake)
+        z_params = self.f_Gz(x_real)
+
+        z_avg = Lambda(lambda x: x[:, :self.z_dims], output_shape=(self.z_dims,))(z_params)
+        z_log_var = Lambda(lambda x: x[:, self.z_dims:], output_shape=(self.z_dims,))(z_params)
+        z_real = Lambda(sample_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
+
+        y_real = self.f_D([x_real, z_real])
+        y_fake = self.f_D([x_fake, z_fake])
+
+        d_loss = DiscriminatorLossLayer()([y_real, y_fake])
+        self.dis_trainer = Model([x_real, z_fake], d_loss)
+        self.dis_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adadelta(), #(lr=1.0e-6, beta_1=0.5),
+                                 metrics=[discriminator_accuracy])
         self.dis_trainer.summary()
 
         # Build generators
+        set_trainable(self.f_Gz, True)
+        set_trainable(self.f_Gx, True)
         set_trainable(self.f_D, False)
 
-        x_real = Input(shape=self.input_shape)
-        z_real = Input(shape=(self.z_dims,))
-
-        z_fake = self.f_Gz(x_real)
-        x_fake = self.f_Gx(z_real)
-
-        y_x_real_z_fake = self.f_D([x_real, z_fake])
-        y_x_fake_z_real = self.f_D([x_fake, z_real])
-
-        self.gen_x_trainer = Model([x_real, z_real], y_x_real_z_fake)
-        self.gen_x_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=2.0e-4, beta_1=0.5),
-                                   metrics=['accuracy'])
-        self.gen_x_trainer.summary()
-
-        self.gen_z_trainer = Model([x_real, z_real], y_x_fake_z_real)
-        self.gen_z_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                   optimizer=Adam(lr=2.0e-4, beta_1=0.5),
-                                   metrics=['accuracy'])
-        self.gen_z_trainer.summary()
+        g_loss = GeneratorLossLayer()([y_real, y_fake])
+        self.gen_trainer = Model([x_real, z_fake], g_loss)
+        self.gen_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adadelta(), #(lr=1.0e-4, beta_1=0.5),
+                                 metrics=[generator_accuracy])
+        self.gen_trainer.summary()
 
         # Store trainers
         self.store_to_save('dis_trainer')
-        self.store_to_save('gen_x_trainer')
-        self.store_to_save('gen_z_trainer')
+        self.store_to_save('gen_trainer')
 
     def build_Gz(self):
         inputs = Input(shape=self.input_shape)
@@ -182,7 +277,7 @@ class ALI(BaseModel):
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=512, kernel_size=(4, 4), bn=True)(x)
-        x = BasicConvLayer(conv_type='conv', filters=self.z_dims, kernel_size=(1, 1), activation='linear')(x)
+        x = BasicConvLayer(conv_type='conv', filters=self.z_dims * 2, kernel_size=(1, 1), activation='linear')(x)
 
         x = Flatten()(x)
 
@@ -208,7 +303,7 @@ class ALI(BaseModel):
         x = BasicConvLayer(conv_type='conv', filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(4, 4), bn=True)(x)
+        x = BasicConvLayer(conv_type='conv', filters=512, kernel_size=(4, 4), bn=True)(x)
 
         z_inputs = Input(shape=(self.z_dims,))
         z = Reshape((1, 1, self.z_dims))(z_inputs)
@@ -218,7 +313,7 @@ class ALI(BaseModel):
         xz = Concatenate(axis=-1)([x, z])
         xz = BasicConvLayer(conv_type='conv', filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
         xz = BasicConvLayer(conv_type='conv', filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
-        xz = BasicConvLayer(conv_type='conv', filters=2, kernel_size=(1, 1), dropout=0.2, activation='softmax')(xz)
+        xz = BasicConvLayer(conv_type='conv', filters=1, kernel_size=(1, 1), dropout=0.2, activation='sigmoid')(xz)
 
         xz = Flatten()(xz)
 

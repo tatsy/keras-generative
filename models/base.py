@@ -67,14 +67,15 @@ class BaseModel(metaclass=ABCMeta):
                 print('\rEpoch #%d | %d / %d (%6.2f %%) ' % \
                       (e + 1, b + bsize, num_data, ratio), end='')
 
-                for k, loss in losses.items():
-                    if reporter == 'all' or k in reporter:
-                        print('| %s = %8.6f ' % (k, loss), end='')
+
+                for k in reporter:
+                    if k in losses:
+                        print('| %s = %8.6f ' % (k, losses[k]), end='')
 
                 sys.stdout.flush()
 
                 # Save generated images
-                if (b + bsize) % 50000 == 0 or (b+ bsize) == num_data:
+                if (b + bsize) % 10000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
                     self.save_images(self, samples, outfile)
 
