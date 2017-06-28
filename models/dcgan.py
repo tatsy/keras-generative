@@ -16,7 +16,7 @@ class DCGAN(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
-        enc_activation='linear',
+        enc_activation='sigmoid',
         dec_activation='sigmoid',
         name='dcgan',
         **kwargs
@@ -37,8 +37,8 @@ class DCGAN(BaseModel):
 
     def train_on_batch(self, x_real):
         batchsize = len(x_real)
-        y_pos = np.zeros(batchsize, dtype='float32')
-        y_neg = np.ones(batchsize, dtype='float32')
+        y_pos = np.ones(batchsize, dtype='float32')
+        y_neg = np.zeros(batchsize, dtype='float32')
 
         z_batch = np.random.uniform(-1.0, 1.0, size=(batchsize, self.z_dims)).astype(np.float32)
 
@@ -80,7 +80,7 @@ class DCGAN(BaseModel):
 
         self.gen_trainer = Model(gen_input, y_fake)
         self.gen_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5),
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5),
                                  metrics=['accuracy'])
 
         self.gen_trainer.summary()
@@ -138,7 +138,7 @@ class DCGAN(BaseModel):
 
         return x
 
-    def basic_decoder_layer(self, x, filters, bn=True, activation='elu'):
+    def basic_decoder_layer(self, x, filters, bn=True, activation='leaky_relu'):
         x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
 
         if bn:
