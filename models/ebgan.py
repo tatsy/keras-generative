@@ -2,15 +2,59 @@ import os
 import numpy as np
 
 import keras
+from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape, Concatenate
 from keras.layers import Activation, LeakyReLU, ELU
-from keras.layers import Conv2D, UpSampling2D, BatchNormalization
+from keras.layers import Conv2D, Conv2DTranspose, BatchNormalization
 from keras.optimizers import Adam
 from keras import backend as K
 
 from .utils import set_trainable
 from .base import BaseModel
+
+def zero_loss(y_true, y_pred):
+    return K.zeros_like(y_true)
+
+class DiscriminatorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(DiscriminatorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_real, y_fake, y_real_pred, y_fake_pred):
+        loss_real = K.mean(K.abs(y_real - y_real_pred))
+        loss_fake = K.mean(K.abs(y_fake - y_fake_pred))
+        loss = loss_real - loss_fake
+        return loss
+
+    def call(self, inputs):
+        y_real = inputs[0]
+        y_fake = inputs[1]
+        y_real_pred = inputs[2]
+        y_fake_pred = inputs[3]
+
+        loss = self.lossfun(y_real, y_fake, y_real_pred, y_fake_pred)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_real
+
+class GeneratorLossLayer(Layer):
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(GeneratorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_fake, y_fake_pred):
+        loss = K.mean(K.abs(y_fake - y_fake_pred))
+        return loss
+
+    def call(self, inputs):
+        y_fake = inputs[0]
+        y_fake_pred = inputs[1]
+
+        loss = self.lossfun(y_fake, y_fake_pred)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_fake
 
 class EBGAN(BaseModel):
     def __init__(self,
@@ -57,15 +101,11 @@ class EBGAN(BaseModel):
     def predict(self, z_samples):
         return self.f_gen.predict(z_samples)
 
-    def save_weights(self, out_dir, epoch, batch):
-        if epoch % 10 == 0:
-            self.f_dis.save_weights(os.path.join(out_dir, 'dis_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-            self.f_gen.save_weights(os.path.join(out_dir, 'gen_weights_epoch_%04d_batch_%d.hdf5' % (epoch, batch)))
-
     def build_model(self):
         self.f_gen = self.build_decoder()
         self.f_dis = self.build_autoencoder()
 
+        # Build discriminator trainer
         input_h, input_w, input_d = self.input_shape
         x_real_fake = Input(shape=(input_h, input_w, input_d * 2))
 
@@ -77,22 +117,26 @@ class EBGAN(BaseModel):
 
         x_real_fake_pred = Concatenate(axis=-1)([x_real_pred, x_fake_pred])
 
-        self.dis_trainer = Model(x_real_fake, x_real_fake_pred)
-        self.dis_trainer.compile(loss=self.discriminator_loss(x_real, x_fake, x_real_pred, x_fake_pred),
-                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+        d_loss = DiscriminatorLossLayer()([x_real, x_fake, x_real_pred, x_fake_pred])
 
+        self.dis_trainer = Model(x_real_fake, d_loss)
+        self.dis_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5))
+        self.dis_trainer.summary()
+
+        # Build generator trainer
         set_trainable(self.f_dis, False)
 
         z_input = Input(shape=(self.z_dims,))
         x_fake = self.f_gen(z_input)
         x_fake_pred = self.f_dis(x_fake)
 
-        self.gen_trainer = Model(z_input, x_fake_pred)
-        self.gen_trainer.compile(loss=self.generator_loss(x_fake, x_fake_pred),
-                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+        g_loss = GeneratorLossLayer()([x_fake, x_fake_pred])
 
+        self.gen_trainer = Model(z_input, g_loss)
+        self.gen_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5))
         self.gen_trainer.summary()
-        self.dis_trainer.summary()
 
         # Store trainers
         self.store_to_save('gen_trainer')
@@ -112,10 +156,10 @@ class EBGAN(BaseModel):
     def build_encoder(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encoder_layer(inputs, filters=64)
-        x = self.basic_encoder_layer(x, filters=128)
-        x = self.basic_encoder_layer(x, filters=256)
-        x = self.basic_encoder_layer(x, filters=256)
+        x = self.basic_encode_layer(inputs, filters=128)
+        x = self.basic_encode_layer(x, filters=256)
+        x = self.basic_encode_layer(x, filters=256)
+        x = self.basic_encode_layer(x, filters=512)
 
         x = Flatten()(x)
         x = Dense(1024)(x)
@@ -128,22 +172,21 @@ class EBGAN(BaseModel):
 
     def build_decoder(self):
         inputs = Input(shape=(self.z_dims,))
-        x = Dense(4 * 4 * 256)(inputs)
+        x = Dense(4 * 4 * 512)(inputs)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 256))(x)
+        x = Reshape((4, 4, 512))(x)
 
-        x = self.basic_decoder_layer(x, filters=256)
-        x = self.basic_decoder_layer(x, filters=128)
-        x = self.basic_decoder_layer(x, filters=64)
-        x = self.basic_decoder_layer(x, filters=3, activation=self.dec_activation)
+        x = self.basic_decode_layer(x, filters=512)
+        x = self.basic_decode_layer(x, filters=256)
+        x = self.basic_decode_layer(x, filters=128)
+        x = self.basic_decode_layer(x, filters=3, activation=self.dec_activation)
 
         return Model(inputs, x)
 
-    def basic_encoder_layer(self, x, filters, bn=False, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5),
-                   strides=(2, 2), padding='same')(x)
+    def basic_encode_layer(self, x, filters, bn=False, activation='relu'):
+        x = Conv2D(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same')(x)
 
         if bn:
             x = BatchNormalization()(x)
@@ -157,8 +200,8 @@ class EBGAN(BaseModel):
 
         return x
 
-    def basic_decoder_layer(self, x, filters, bn=True, activation='elu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
+    def basic_decode_layer(self, x, filters, bn=True, activation='relu'):
+        x = Conv2DTranspose(filters=filters, kernel_size=(4, 4), strides=(2, 2), padding='same')(x)
 
         if bn:
             x = BatchNormalization()(x)
@@ -170,20 +213,4 @@ class EBGAN(BaseModel):
         else:
             x = Activation(activation)(x)
 
-        x = UpSampling2D(size=(2, 2))(x)
         return x
-
-    def discriminator_loss(self, y_real, y_fake, y_real_pred, y_fake_pred):
-        def losses(y0, y1):
-            loss_real = K.mean(K.square(y_real - y_real_pred), axis=[1, 2, 3])
-            loss_fake = K.mean(K.square(y_fake - y_fake_pred), axis=[1, 2, 3])
-            return loss_real - loss_fake
-
-        return losses
-
-    def generator_loss(self, y_fake, y_fake_pred):
-        def losses(y0, y1):
-            loss = K.mean(K.square(y_fake - y_fake_pred), axis=[1, 2, 3])
-            return loss
-
-        return losses

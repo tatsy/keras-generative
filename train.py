@@ -27,9 +27,13 @@ def main():
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
     parser.add_argument('--zdims', type=int, default=256)
+    parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--resume', type=str, default=None)
 
     args = parser.parse_args()
+
+    # select gpu
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
 
     # Make output direcotiry if not exists
     if not os.path.isdir(args.output):
