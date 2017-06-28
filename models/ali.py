@@ -26,21 +26,33 @@ def zero_loss(y_true, y_pred):
 def BasicConvLayer(
     conv_type,
     filters,
-    kernel_size=(3, 3),
+    kernel_size,
     strides=(1, 1),
     bn=False,
     dropout=0.0,
     activation='leaky_relu'):
 
     def fun(inputs):
+        if dropout > 0.0:
+            x = Dropout(dropout)(inputs)
+        else:
+            x = inputs
+
+        kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
+        bias_init = keras.initializers.Zeros()
+
         if conv_type == 'conv':
             x = Conv2D(filters=filters,
                        kernel_size=kernel_size,
-                       strides=strides)(inputs)
+                       strides=strides,
+                       kernel_initializer=kernel_init,
+                       bias_initializer=bias_init)(x)
         elif conv_type == 'deconv':
             x = Conv2DTranspose(filters=filters,
                                 kernel_size=kernel_size,
-                                strides=strides)(inputs)
+                                strides=strides,
+                                kernel_initializer=kernel_init,
+                                bias_initializer=bias_init)(x)
         else:
             raise Exception(conv_type, 'is not supported!')
 
@@ -53,9 +65,6 @@ def BasicConvLayer(
             x = ELU()(x)
         else:
             x = Activation(activation)(x)
-
-        if dropout > 0.0:
-            x = Dropout(dropout)(x)
 
         return x
 
@@ -82,24 +91,95 @@ def BasicConvLayer(
 #         self.activation = activation
 #
 #     def build(self, input_shape):
+#         kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
+#         bias_init = keras.initializers.Zeros()
+#
 #         if self.conv_type == 'conv':
 #             self.conv = Conv2D(filters=self.filters,
 #                                kernel_size=self.kernel_size,
-#                                strides=self.strides)
+#                                strides=self.strides,
+#                                kernel_initializer=kernel_init,
+#                                bias_initializer=bias_init)
 #         elif self.conv_type == 'deconv':
 #             self.conv = Conv2DTranspose(filters=self.filters,
 #                                         kernel_size=self.kernel_size,
-#                                         strides=self.strides)
+#                                         strides=self.strides,
+#                                         kernel_initializer=kernel_init,
+#                                         bias_initializer=bias_init)
 #         else:
-#             raise Exception(self.conv_type, 'is not supported!')
+#             raise Exception(conv_type, 'is not supported!')
 #
-#         self.trainable_weights = self.conv.trainable_weights
+#         self.bn_layer = BatchNormalization()
+#
+#         self.trainable_weights = [self.conv.trainable_weights, self.bn_layer.trainable_weights]
+#
+#         super(BasicConvLayer, self).build(input_shape)
 #
 #     def call(self, x, mask=None):
+#         if self.dropout > 0.0:
+#             x = Dropout(self.dropout)(x)
+#
 #         x = self.conv(x)
 #
 #         if self.bn:
-#             x = BatchNormalization()(x)
+#             x = self.bn_layer(x)
+#
+#         if self.activation == 'leaky_relu':
+#             x = LeakyReLU(0.02)(x)
+#         elif self.activation == 'elu':
+#             x = ELU()(x)# class BasicConvLayer(Layer):
+#     def __init__(self,
+#         conv_type,
+#         filters,
+#         kernel_size=(3, 3),
+#         strides=(1, 1),
+#         bn=False,
+#         dropout=0.0,
+#         activation='leaky_relu',
+#         **kwargs
+#     ):
+#         super(BasicConvLayer, self).__init__(**kwargs)
+#         self.conv_type = conv_type
+#         self.filters = filters
+#         self.kernel_size = kernel_size
+#         self.strides = strides
+#         self.bn = bn
+#         self.dropout = dropout
+#         self.activation = activation
+#
+#     def build(self, input_shape):
+#         kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
+#         bias_init = keras.initializers.Zeros()
+#
+#         if self.conv_type == 'conv':
+#             self.conv = Conv2D(filters=self.filters,
+#                                kernel_size=self.kernel_size,
+#                                strides=self.strides,
+#                                kernel_initializer=kernel_init,
+#                                bias_initializer=bias_init)
+#         elif self.conv_type == 'deconv':
+#             self.conv = Conv2DTranspose(filters=self.filters,
+#                                         kernel_size=self.kernel_size,
+#                                         strides=self.strides,
+#                                         kernel_initializer=kernel_init,
+#                                         bias_initializer=bias_init)
+#         else:
+#             raise Exception(conv_type, 'is not supported!')
+#
+#         self.bn_layer = BatchNormalization()
+#
+#         self.trainable_weights = [self.conv.trainable_weights, self.bn_layer.trainable_weights]
+#
+#         super(BasicConvLayer, self).build(input_shape)
+#
+#     def call(self, x, mask=None):
+#         if self.dropout > 0.0:
+#             x = Dropout(self.dropout)(x)
+#
+#         x = self.conv(x)
+#
+#         if self.bn:
+#             x = self.bn_layer(x)
 #
 #         if self.activation == 'leaky_relu':
 #             x = LeakyReLU(0.02)(x)
@@ -108,8 +188,15 @@ def BasicConvLayer(
 #         else:
 #             x = Activation(self.activation)(x)
 #
-#         if self.dropout > 0.0:
-#             x = Dropout(self.dropout)(x)
+#         return x
+#
+#     def compute_output_shape(self, input_shape):
+#         return self.conv.compute_output_shape(input_shape)
+#
+#     def get_output_shape_for(self, input_shape):
+#         return self.conv.get_output_shape_for(input_shape)
+#         else:
+#             x = Activation(self.activation)(x)
 #
 #         return x
 #
@@ -200,8 +287,8 @@ class ALI(BaseModel):
 
     def train_on_batch(self, x_real):
         batchsize = len(x_real)
-        y_pos = np.ones(batchsize, dtype=np.int32)
-        y_neg = np.zeros(batchsize, dtype=np.int32)
+        y_pos = np.ones(batchsize, dtype='float32')
+        y_neg = np.zeros(batchsize, dtype='float32')
 
         z_fake = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
 
@@ -249,7 +336,7 @@ class ALI(BaseModel):
         d_loss = DiscriminatorLossLayer()([y_real, y_fake])
         self.dis_trainer = Model([x_real, z_fake], d_loss)
         self.dis_trainer.compile(loss=[zero_loss],
-                                 optimizer=Adadelta(), #(lr=1.0e-6, beta_1=0.5),
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5),
                                  metrics=[discriminator_accuracy])
         self.dis_trainer.summary()
 
@@ -261,7 +348,7 @@ class ALI(BaseModel):
         g_loss = GeneratorLossLayer()([y_real, y_fake])
         self.gen_trainer = Model([x_real, z_fake], g_loss)
         self.gen_trainer.compile(loss=[zero_loss],
-                                 optimizer=Adadelta(), #(lr=1.0e-4, beta_1=0.5),
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5),
                                  metrics=[generator_accuracy])
         self.gen_trainer.summary()
 
@@ -277,7 +364,7 @@ class ALI(BaseModel):
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(conv_type='conv', filters=512, kernel_size=(4, 4), bn=True)(x)
-        x = BasicConvLayer(conv_type='conv', filters=self.z_dims * 2, kernel_size=(1, 1), activation='linear')(x)
+        x = BasicConvLayer(conv_type='conv', filters=self.z_dims * 2, kernel_size=(1, 1), activation='tanh')(x)
 
         x = Flatten()(x)
 

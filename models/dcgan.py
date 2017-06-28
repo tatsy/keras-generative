@@ -47,6 +47,7 @@ class DCGAN(BaseModel):
         x_fake = self.f_gen.predict_on_batch(z_batch)
         d_loss_real, d_acc_real = self.dis_trainer.train_on_batch(x_real, y_pos)
         d_loss_fake, d_acc_fake = self.dis_trainer.train_on_batch(x_fake, y_neg)
+        d_acc = 0.5 * (d_acc_real + d_acc_fake)
 
         loss = {
             'g_loss': g_loss,
