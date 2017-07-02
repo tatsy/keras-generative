@@ -32,12 +32,12 @@ class CondBaseModel(BaseModel):
         samples = np.tile(samples, (1, self.num_attrs))
         samples = samples.reshape((num_samples * self.num_attrs, -1))
 
-        imgs = gen.predict([samples, attrs])
+        imgs = gen.predict([samples, attrs]) * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))
 
-        fig = plt.figure(figsize=(32, 8))
+        fig = plt.figure(figsize=(40, 10))
         grid = gridspec.GridSpec(num_samples, self.num_attrs, wspace=0.1, hspace=0.1)
         for i in range(num_samples * self.num_attrs):
             ax = plt.Subplot(fig, grid[i])

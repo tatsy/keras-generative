@@ -49,6 +49,7 @@ def main():
         model.load_model(args.resume)
 
     datasets = load_celebA('datasets/celebA.hdf5').images
+    datasets = datasets * 2.0 - 1.0
 
     # Training loop
     samples = np.random.normal(size=(100, args.zdims)).astype(np.float32)

@@ -94,7 +94,7 @@ class BaseModel(metaclass=ABCMeta):
         '''
         Save images generated from random sample numbers
         '''
-        imgs = gen.predict(samples)
+        imgs = gen.predict(samples) * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))
