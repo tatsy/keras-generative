@@ -6,7 +6,7 @@ from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape, Concatenate
 from keras.layers import Activation, LeakyReLU, ELU
-from keras.layers import Conv2D, UpSampling2D, BatchNormalization
+from keras.layers import Conv2D, Conv2DTranspose, UpSampling2D, BatchNormalization
 from keras.optimizers import Adam
 from keras import backend as K
 
@@ -98,7 +98,7 @@ class GeneratorLossLayer(Layer):
                             c_pred_from_data, c_pred_from_x, c_pred_from_z)
         self.add_loss(loss, inputs=inputs)
 
-        return y_pred_from_data
+        return x_inputs
 
 class AutoEncoderLossLayer(Layer):
     def __init__(self, **kwargs):
@@ -107,7 +107,7 @@ class AutoEncoderLossLayer(Layer):
 
     def lossfun(self, x_true, x_pred, z_avg, z_log_var):
         scale = K.cast(K.prod(K.shape(x_true)[1:]), 'float32')
-        entropy = keras.metrics.binary_crossentropy(x_true, x_pred) * scale
+        entropy = K.square(x_true - x_pred) * scale
         kl_loss = -0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1)
         return K.mean(entropy) + K.mean(kl_loss)
 
@@ -125,18 +125,18 @@ def discriminator_accuracy(y_real, y_fake):
     def accfun(y0, y1):
         y_pos = K.ones_like(y_real)
         y_neg = K.ones_like(y_fake)
-        loss_real = keras.metrics.binary_accuracy(y_pos, y_real)
-        loss_fake = keras.metrics.binary_accuracy(y_neg, y_fake)
-        return 0.5 * K.mean(loss_real + loss_fake)
+        loss_real = K.mean(keras.metrics.binary_accuracy(y_pos, y_real))
+        loss_fake = K.mean(keras.metrics.binary_accuracy(y_neg, y_fake))
+        return 0.5 * (loss_real + loss_fake)
 
     return accfun
 
 def generator_accuracy(y_pred_from_x, y_pred_from_z):
     def accfun(y0, y1):
         y_pos = K.ones_like(y_pred_from_x)
-        loss_x = keras.metrics.binary_accuracy(y_pos, y_pred_from_x)
-        loss_z = keras.metrics.binary_accuracy(y_pos, y_pred_from_z)
-        return 0.5 * K.mean(loss_x + loss_z)
+        loss_x = K.mean(keras.metrics.binary_accuracy(y_pos, y_pred_from_x))
+        loss_z = K.mean(keras.metrics.binary_accuracy(y_pos, y_pred_from_z))
+        return 0.5 * (loss_x + loss_z)
 
     return accfun
 
@@ -146,7 +146,7 @@ class CVAEGAN(CondBaseModel):
         num_attrs=40,
         z_dims = 128,
         enc_activation='linear',
-        dec_activation='sigmoid',
+        dec_activation='tanh',
         dis_activation='sigmoid',
         name='cvaegan',
         **kwargs
@@ -216,7 +216,7 @@ class CVAEGAN(CondBaseModel):
         self.cls_trainer = Model(inputs=[x_real, x_fake, c_true],
                                  outputs=c_loss)
         self.cls_trainer.compile(loss=[zero_loss],
-                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2))
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5))
         self.cls_trainer.summary()
 
         # Build discriminator trainer
@@ -228,7 +228,7 @@ class CVAEGAN(CondBaseModel):
         self.dis_trainer = Model(inputs=[x_real, x_fake],
                                  outputs=d_loss)
         self.dis_trainer.compile(loss=[zero_loss],
-                                 optimizer=Adam(lr=5.0e-6, beta_1=0.2),
+                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5),
                                  metrics=[discriminator_accuracy(y_pred_real, y_pred_fake)])
         self.dis_trainer.summary()
 
@@ -312,15 +312,15 @@ class CVAEGAN(CondBaseModel):
         a_inputs = Input(shape=(self.num_attrs,))
         x = Concatenate()([x_inputs, a_inputs])
 
-        x = Dense(4 * 4 * 512)(x)
+        x = Dense(4 * 4 * 256)(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 512))(x)
+        x = Reshape((4, 4, 256))(x)
 
-        x = self.basic_decode_layer(x, filters=512)
         x = self.basic_decode_layer(x, filters=256)
         x = self.basic_decode_layer(x, filters=128)
+        x = self.basic_decode_layer(x, filters=64)
         x = self.basic_decode_layer(x, filters=3, activation=self.dec_activation)
 
         return Model([x_inputs, a_inputs], x, name='decoder')
@@ -330,7 +330,7 @@ class CVAEGAN(CondBaseModel):
 
         x = self.basic_encode_layer(inputs, filters=128)
         x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
+        x = self.basic_encode_layer(x, filters=256)
         x = self.basic_encode_layer(x, filters=512)
 
         x = Flatten()(x)
@@ -359,24 +359,24 @@ class CVAEGAN(CondBaseModel):
 
         return Model(inputs, x)
 
-    def basic_encode_layer(self, x, filters, activation='relu'):
+    def basic_encode_layer(self, x, filters, activation='leaky_relu'):
         x = Conv2D(filters=filters, kernel_size=(5, 5),
                    strides=(2, 2), padding='same')(x)
         x = BatchNormalization()(x)
         if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
+            x = LeakyReLU(0.1)(x)
         else:
             x = Activation(activation)(x)
 
         return x
 
     def basic_decode_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
+        x = Conv2DTranspose(filters=filters, kernel_size=(5, 5),
+                            strides=(2, 2), padding='same')(x)
         x = BatchNormalization()(x)
         if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
+            x = LeakyReLU(0.1)(x)
         else:
             x = Activation(activation)(x)
 
-        x = UpSampling2D(size=(2, 2))(x)
         return x
