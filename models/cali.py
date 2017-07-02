@@ -11,7 +11,7 @@ from keras.optimizers import Adam, Adadelta
 from keras import backend as K
 
 from .utils import set_trainable
-from .base import BaseModel
+from .cond_base import CondBaseModel
 
 def sample_normal(args):
     z_avg, z_log_var = args
@@ -159,17 +159,19 @@ def generator_accuracy(y_real, y_fake):
     acc_real = keras.metrics.binary_accuracy(y_neg, y_real)
     return 0.5 * K.mean(acc_real + acc_fake)
 
-class ALI(BaseModel):
+class CALI(CondBaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
+        num_attrs=40,
         z_dims = 128,
-        name='ali',
+        name='cali',
         **kwargs
     ):
-        super(ALI, self).__init__(name=name, **kwargs)
+        super(CALI, self).__init__(name=name, **kwargs)
 
         self.input_shape = input_shape
         self.z_dims = z_dims
+        self.num_attrs = num_attrs
 
         self.f_Gz = None
         self.f_Gx = None
@@ -180,15 +182,17 @@ class ALI(BaseModel):
 
         self.build_model()
 
-    def train_on_batch(self, x_real):
+    def train_on_batch(self, x_batch):
+        x_real, c_real = x_batch
+
         batchsize = len(x_real)
         y_pos = np.ones(batchsize, dtype='float32')
         y_neg = np.zeros(batchsize, dtype='float32')
 
         z_fake = np.random.normal(size=(batchsize, self.z_dims)).astype('float32')
 
-        g_loss, g_acc = self.gen_trainer.train_on_batch([x_real, z_fake], y_pos)
-        d_loss, d_acc = self.dis_trainer.train_on_batch([x_real, z_fake], y_pos)
+        g_loss, g_acc = self.gen_trainer.train_on_batch([x_real, c_real, z_fake], y_pos)
+        d_loss, d_acc = self.dis_trainer.train_on_batch([x_real, c_real, z_fake], y_pos)
 
         losses = {
             'g_loss': g_loss,
@@ -216,20 +220,21 @@ class ALI(BaseModel):
         set_trainable(self.f_D, True)
 
         x_real = Input(shape=self.input_shape)
+        c_real = Input(shape=(self.num_attrs,))
         z_fake = Input(shape=(self.z_dims,))
 
-        x_fake = self.f_Gx(z_fake)
-        z_params = self.f_Gz(x_real)
+        x_fake = self.f_Gx([z_fake, c_real])
+        z_params = self.f_Gz([x_real, c_real])
 
         z_avg = Lambda(lambda x: x[:, :self.z_dims], output_shape=(self.z_dims,))(z_params)
         z_log_var = Lambda(lambda x: x[:, self.z_dims:], output_shape=(self.z_dims,))(z_params)
         z_real = Lambda(sample_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
 
-        y_real = self.f_D([x_real, z_real])
-        y_fake = self.f_D([x_fake, z_fake])
+        y_real = self.f_D([x_real, c_real, z_real])
+        y_fake = self.f_D([x_fake, c_real, z_fake])
 
         d_loss = DiscriminatorLossLayer()([y_real, y_fake])
-        self.dis_trainer = Model([x_real, z_fake], d_loss)
+        self.dis_trainer = Model([x_real, c_real, z_fake], d_loss)
         self.dis_trainer.compile(loss=[zero_loss],
                                  optimizer=Adam(lr=1.0e-5, beta_1=0.1),
                                  metrics=[discriminator_accuracy])
@@ -241,7 +246,7 @@ class ALI(BaseModel):
         set_trainable(self.f_D, False)
 
         g_loss = GeneratorLossLayer()([y_real, y_fake])
-        self.gen_trainer = Model([x_real, z_fake], g_loss)
+        self.gen_trainer = Model([x_real, c_real, z_fake], g_loss)
         self.gen_trainer.compile(loss=[zero_loss],
                                  optimizer=Adam(lr=1.0e-4, beta_1=0.5),
                                  metrics=[generator_accuracy])
@@ -252,23 +257,30 @@ class ALI(BaseModel):
         self.store_to_save('gen_trainer')
 
     def build_Gz(self):
-        inputs = Input(shape=self.input_shape)
+        x_inputs = Input(shape=self.input_shape)
+        c_inputs = Input(shape=(self.num_attrs,))
 
-        x = BasicConvLayer(filters=64, kernel_size=(2, 2), bn=True)(inputs)
+        x = BasicConvLayer(filters=64, kernel_size=(2, 2), bn=True)(x_inputs)
         x = BasicConvLayer(filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
         x = BasicConvLayer(filters=512, kernel_size=(4, 4), bn=True)(x)
+
+        c = Reshape((1, 1, self.num_attrs))(c_inputs)
+        x = Concatenate(axis=-1)([x, c])
         x = BasicConvLayer(filters=self.z_dims * 2, kernel_size=(1, 1), activation='tanh')(x)
 
         x = Flatten()(x)
 
-        return Model(inputs, x, name='Gz')
+        return Model([x_inputs, c_inputs], x, name='Gz')
 
     def build_Gx(self):
-        inputs = Input(shape=(self.z_dims,))
+        x_inputs = Input(shape=(self.z_dims,))
+        c_inputs = Input(shape=(self.num_attrs,))
 
-        x = Dense(4 * 4 * 512)(inputs)
+        x = Concatenate(axis=-1)([x_inputs, c_inputs])
+
+        x = Dense(4 * 4 * 512)(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
@@ -280,10 +292,11 @@ class ALI(BaseModel):
         x = BasicDeconvLayer(filters=128, kernel_size=(5, 5), upsample=True, bn=True)(x)
         x = BasicDeconvLayer(filters=3, kernel_size=(3, 3), upsample=False, activation='tanh')(x)
 
-        return Model(inputs, x)
+        return Model([x_inputs, c_inputs], x)
 
     def build_D(self):
         x_inputs = Input(shape=self.input_shape)
+        c_inputs = Input(shape=(self.num_attrs,))
 
         x = BasicConvLayer(filters=64, kernel_size=(2, 2), bn=True)(x_inputs)
         x = BasicConvLayer(filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
@@ -296,11 +309,13 @@ class ALI(BaseModel):
         z = BasicConvLayer(filters=1024, kernel_size=(1, 1), dropout=0.2)(z)
         z = BasicConvLayer(filters=1024, kernel_size=(1, 1), dropout=0.2)(z)
 
-        xz = Concatenate(axis=-1)([x, z])
+        c = Reshape((1, 1, self.num_attrs))(c_inputs)
+
+        xz = Concatenate(axis=-1)([x, c, z])
         xz = BasicConvLayer(filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
         xz = BasicConvLayer(filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
         xz = BasicConvLayer(filters=1, kernel_size=(1, 1), dropout=0.2, activation='sigmoid')(xz)
 
         xz = Flatten()(xz)
 
-        return Model([x_inputs, z_inputs], xz)
+        return Model([x_inputs, c_inputs, z_inputs], xz)

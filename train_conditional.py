@@ -9,12 +9,13 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-from models import CVAE, CVAEGAN
+from models import CVAE, CVAEGAN, CALI
 from basics import *
 
 models = {
     'cvae': CVAE,
-    'cvaegan': CVAEGAN
+    'cvaegan': CVAEGAN,
+    'cali': CALI
 }
 
 def main():
