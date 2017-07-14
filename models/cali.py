@@ -6,7 +6,7 @@ from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape, Concatenate
 from keras.layers import Activation, LeakyReLU, ELU
-from keras.layers import Conv2D, UpSampling2D, BatchNormalization, Dropout
+from keras.layers import Conv2D, Conv2DTranspose, UpSampling2D, BatchNormalization, Dropout
 from keras.optimizers import Adam, Adadelta
 from keras import backend as K
 
@@ -44,7 +44,8 @@ def BasicConvLayer(
                    kernel_size=kernel_size,
                    strides=strides,
                    kernel_initializer=kernel_init,
-                   bias_initializer=bias_init)(x)
+                   bias_initializer=bias_init,
+                   use_bias=True)(x)
 
         if bn:
             x = BatchNormalization()(x)
@@ -63,7 +64,7 @@ def BasicConvLayer(
 def BasicDeconvLayer(
     filters,
     kernel_size,
-    upsample=True,
+    strides=(1, 1),
     bn=False,
     dropout=0.0,
     activation='leaky_relu'):
@@ -77,11 +78,12 @@ def BasicDeconvLayer(
         kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
         bias_init = keras.initializers.Zeros()
 
-        x = Conv2D(filters=filters,
-                   kernel_size=kernel_size,
-                   kernel_initializer=kernel_init,
-                   bias_initializer=bias_init,
-                   padding='same')(x)
+        x = Conv2DTranspose(filters=filters,
+                            kernel_size=kernel_size,
+                            strides=strides,
+                            kernel_initializer=kernel_init,
+                            bias_initializer=bias_init,
+                            use_bias=True)(x)
 
         if bn:
             x = BatchNormalization()(x)
@@ -92,9 +94,6 @@ def BasicDeconvLayer(
             x = ELU()(x)
         else:
             x = Activation(activation)(x)
-
-        if upsample:
-            x = UpSampling2D(size=(2, 2))(x)
 
         return x
 
@@ -108,12 +107,11 @@ class DiscriminatorLossLayer(Layer):
 
     def lossfun(self, y_real, y_fake):
         y_pos = K.ones_like(y_real)
-        y_neg = K.zeros_like(y_fake)
+        # y_neg = K.zeros_like(y_real)
+        loss_real = K.mean(keras.metrics.binary_crossentropy(y_pos, y_real))
+        loss_fake = K.mean(keras.metrics.binary_crossentropy(y_pos, y_fake))
 
-        loss_real = keras.metrics.binary_crossentropy(y_pos, y_real)
-        loss_fake = keras.metrics.binary_crossentropy(y_neg, y_fake)
-
-        return K.mean(loss_real + loss_fake)
+        return loss_real - loss_fake
 
     def call(self, inputs):
         y_real = inputs[0]
@@ -236,7 +234,7 @@ class CALI(CondBaseModel):
         d_loss = DiscriminatorLossLayer()([y_real, y_fake])
         self.dis_trainer = Model([x_real, c_real, z_fake], d_loss)
         self.dis_trainer.compile(loss=[zero_loss],
-                                 optimizer=Adam(lr=1.0e-5, beta_1=0.1),
+                                 optimizer=Adam(lr=1.0e-4, beta_1=0.5),
                                  metrics=[discriminator_accuracy])
         self.dis_trainer.summary()
 
@@ -268,7 +266,7 @@ class CALI(CondBaseModel):
 
         c = Reshape((1, 1, self.num_attrs))(c_inputs)
         x = Concatenate(axis=-1)([x, c])
-        x = BasicConvLayer(filters=self.z_dims * 2, kernel_size=(1, 1), activation='tanh')(x)
+        x = BasicConvLayer(filters=self.z_dims * 2, kernel_size=(1, 1), activation='linear')(x)
 
         x = Flatten()(x)
 
@@ -279,18 +277,14 @@ class CALI(CondBaseModel):
         c_inputs = Input(shape=(self.num_attrs,))
 
         x = Concatenate(axis=-1)([x_inputs, c_inputs])
+        x = Reshape((1, 1, self.z_dims + self.num_attrs))(x)
 
-        x = Dense(4 * 4 * 512)(x)
-        x = BatchNormalization()(x)
-        x = Activation('relu')(x)
-
-        x = Reshape((4, 4, 512))(x)
-
-        x = BasicDeconvLayer(filters=512, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=128, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=3, kernel_size=(3, 3), upsample=False, activation='tanh')(x)
+        x = BasicDeconvLayer(filters=512, kernel_size=(4, 4), bn=True)(x)
+        x = BasicDeconvLayer(filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
+        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
+        x = BasicDeconvLayer(filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
+        x = BasicDeconvLayer(filters=64, kernel_size=(2, 2), bn=True)(x)
+        x = BasicDeconvLayer(filters=3, kernel_size=(1, 1), activation='tanh')(x)
 
         return Model([x_inputs, c_inputs], x)
 
