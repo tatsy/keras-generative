@@ -1,1 +1,1 @@
-from .io import load_celebA
+from .io import load_data

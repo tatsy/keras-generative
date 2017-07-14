@@ -75,7 +75,7 @@ class BaseModel(metaclass=ABCMeta):
                 sys.stdout.flush()
 
                 # Save generated images
-                if (b + bsize) % 50000 == 0 or (b+ bsize) == num_data:
+                if (b + bsize) % 10000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
                     self.save_images(self, samples, outfile)
 

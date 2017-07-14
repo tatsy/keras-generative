@@ -19,7 +19,7 @@ class CondBaseModel(BaseModel):
 
     def make_batch(self, datasets, indx):
         images = datasets.images[indx]
-        attrs = datasets.attribs[indx]
+        attrs = datasets.attrs[indx]
         return images, attrs
 
     def save_images(self, gen, samples, filename):
@@ -37,7 +37,7 @@ class CondBaseModel(BaseModel):
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))
 
-        fig = plt.figure(figsize=(40, 10))
+        fig = plt.figure(figsize=(self.num_attrs, 10))
         grid = gridspec.GridSpec(num_samples, self.num_attrs, wspace=0.1, hspace=0.1)
         for i in range(num_samples * self.num_attrs):
             ax = plt.Subplot(fig, grid[i])
