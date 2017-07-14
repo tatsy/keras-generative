@@ -11,8 +11,7 @@
 
 output/*
 result/*
-datasets/*
-!datasets/create_database.py
+datasets/files/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

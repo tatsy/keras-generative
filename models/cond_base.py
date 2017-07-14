@@ -10,7 +10,6 @@ from .base import BaseModel
 class CondBaseModel(BaseModel):
     def __init__(self, **kwargs):
         super(CondBaseModel, self).__init__(**kwargs)
-
         self.attr_names = None
 
     def main_loop(self, datasets, samples, attr_names, epochs=100, batchsize=100, reporter=[]):

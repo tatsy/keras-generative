@@ -11,6 +11,15 @@ from keras.models import load_model
 
 from abc import ABCMeta, abstractmethod
 
+def time_format(t):
+    m, s = divmod(t, 60)
+    m = int(m)
+    s = int(s)
+    if m == 0:
+        return '%d sec' % s
+    else:
+        return '%d min %d sec' % (m, s)
+
 class BaseModel(metaclass=ABCMeta):
     '''
     Base class for non-conditional generative networks
@@ -64,13 +73,18 @@ class BaseModel(metaclass=ABCMeta):
 
                 # Print current status
                 ratio = 100.0 * (b + bsize) / num_data
+                print(chr(27) + "[2K", end='')
                 print('\rEpoch #%d | %d / %d (%6.2f %%) ' % \
                       (e + 1, b + bsize, num_data, ratio), end='')
-
 
                 for k in reporter:
                     if k in losses:
                         print('| %s = %8.6f ' % (k, losses[k]), end='')
+
+                # Compute ETA
+                elapsed_time = time.time() - start_time
+                eta = elapsed_time / (b + bsize) * (num_data - (b + bsize))
+                print('| ETA: %s ' % time_format(eta), end='')
 
                 sys.stdout.flush()
 

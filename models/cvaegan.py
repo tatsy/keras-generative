@@ -344,7 +344,6 @@ class CVAEGAN(CondBaseModel):
         x = Reshape((2, 2, 512))(x)
 
         x = self.basic_decode_layer(x, filters=512)
-        x = self.basic_decode_layer(x, filters=512)
         x = self.basic_decode_layer(x, filters=256)
         x = self.basic_decode_layer(x, filters=256)
         x = self.basic_decode_layer(x, filters=128)
@@ -358,7 +357,6 @@ class CVAEGAN(CondBaseModel):
         x = self.basic_encode_layer(inputs, filters=128)
         x = self.basic_encode_layer(x, filters=256)
         x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
         x = self.basic_encode_layer(x, filters=512)
 
         f = Flatten()(x)
@@ -376,7 +374,6 @@ class CVAEGAN(CondBaseModel):
         x = self.basic_encode_layer(inputs, filters=128)
         x = self.basic_encode_layer(x, filters=256)
         x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
         x = self.basic_encode_layer(x, filters=512)
 
         f = Flatten()(x)

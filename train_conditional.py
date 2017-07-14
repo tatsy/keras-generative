@@ -10,7 +10,7 @@ import matplotlib
 matplotlib.use('Agg')
 
 from models import CVAE, CVAEGAN, CALI, TripleGAN
-from basics import *
+from datasets import load_data
 
 models = {
     'cvae': CVAE,
