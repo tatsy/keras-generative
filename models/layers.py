@@ -1,6 +1,17 @@
 import keras
 from keras.layers import Conv2D, UpSampling2D, BatchNormalization, Conv2DTranspose
-from keras.layers import Activation, ELU, LeakyReLU, Dropout
+from keras.layers import Activation, ELU, LeakyReLU, Dropout, Lambda
+from keras import backend as K
+
+def sample_normal(inputs):
+    z_avg, z_log_var = inputs
+    batch_size = K.shape(z_avg)[0]
+    z_dims = K.shape(z_avg)[1]
+    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
+    return z_avg + K.exp(z_log_var / 2.0) * eps
+
+def SampleNormal():
+    return Lambda(sample_normal)
 
 def BasicConvLayer(
     filters,

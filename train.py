@@ -5,12 +5,14 @@ import argparse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+import numpy as np
 import matplotlib
 matplotlib.use('Agg')
-import numpy as np
+
+from keras.datasets import mnist
 
 from models import VAE, DCGAN, EBGAN, ALI
-from datasets import *
+from datasets import load_data
 
 models = {
     'vae': VAE,
@@ -23,12 +25,14 @@ def main():
     # Parsing arguments
     parser = argparse.ArgumentParser(description='Training GANs or VAEs')
     parser.add_argument('--model', type=str, required=True)
+    parser.add_argument('--dataset', type=str, required=True)
     parser.add_argument('--epoch', type=int, default=200)
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
     parser.add_argument('--zdims', type=int, default=256)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--testmode', action='store_true')
 
     args = parser.parse_args()
 
@@ -39,19 +43,32 @@ def main():
     if not os.path.isdir(args.output):
         os.mkdir(args.output)
 
+    # Load datasets
+    if args.dataset == 'mnist':
+        (datasets, _), _ = mnist.load_data()
+        datasets = np.pad(datasets, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0.0)
+        datasets = (datasets[:, :, :, np.newaxis] / 255.0).astype('float32')
+    else:
+        datasets = load_data(args.dataset)
+
     # Construct model
     if args.model not in models:
         raise Exception('Unknown model:', args.model)
 
-    model = models[args.model](z_dims=args.zdims, output=args.output)
+    model = models[args.model](
+        input_shape=datasets.shape[1:],
+        z_dims=args.zdims,
+        output=args.output
+    )
+
+    if args.testmode:
+        model.test_mode = True
 
     if args.resume is not None:
         model.load_model(args.resume)
 
-    datasets = load_celebA('datasets/celebA.hdf5').images
-    datasets = datasets * 2.0 - 1.0
-
     # Training loop
+    datasets = datasets * 2.0 - 1.0
     samples = np.random.normal(size=(100, args.zdims)).astype(np.float32)
     model.main_loop(datasets, samples,
         epochs=args.epoch,

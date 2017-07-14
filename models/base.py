@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import numpy as np
 
 import matplotlib
@@ -8,8 +9,9 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 from keras.models import load_model
-
 from abc import ABCMeta, abstractmethod
+
+from .utils import *
 
 def time_format(t):
     m, s = divmod(t, 60)
@@ -34,12 +36,35 @@ class BaseModel(metaclass=ABCMeta):
 
         self.name = kwargs['name']
 
+        if 'input_shape' not in kwargs:
+            raise Exception('Please specify input shape!')
+
+        self.check_input_shape(kwargs['input_shape'])
+        self.input_shape = kwargs['input_shape']
+
         if 'output' not in kwargs:
             self.output = 'output'
         else:
             self.output = kwargs['output']
 
+        self.test_mode = False
         self.trainers = {}
+
+    def check_input_shape(self, input_shape):
+        # Check for CelebA
+        if input_shape == (64, 64, 3):
+            return
+
+        # Check for MNIST (size modified)
+        if input_shape == (32, 32, 1):
+            return
+
+        # Check for Cifar10, 100 etc
+        if input_shape == (32, 32, 3):
+            return
+
+        errmsg = 'Input size should be 32 x 32 or 64 x 64!'
+        raise Exception(errmsg)
 
     def main_loop(self, datasets, samples, epochs=100, batchsize=100, reporter=[]):
         '''
@@ -63,6 +88,7 @@ class BaseModel(metaclass=ABCMeta):
         num_data = len(datasets)
         for e in range(epochs):
             perm = np.random.permutation(num_data)
+            start_time = time.time()
             for b in range(0, num_data, batchsize):
                 bsize = min(batchsize, num_data - b)
                 indx = perm[b:b+bsize]
@@ -92,6 +118,10 @@ class BaseModel(metaclass=ABCMeta):
                 if (b + bsize) % 10000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
                     self.save_images(self, samples, outfile)
+
+                if self.test_mode:
+                    print('Finish testing: %s' % self.name)
+                    return
 
             print('')
 
