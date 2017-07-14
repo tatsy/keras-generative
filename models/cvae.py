@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 import keras
 from keras.models import Model
@@ -9,79 +10,73 @@ from keras.optimizers import Adam
 from keras import backend as K
 
 from .cond_base import CondBaseModel
-
-def draw_normal(args):
-    z_avg, z_log_var = args
-    batch_size = K.shape(z_avg)[0]
-    z_dims = K.shape(z_avg)[1]
-    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
-    return z_avg + K.exp(z_log_var / 2.0) * eps
+from .layers import *
+from .utils import *
 
 class CVAE(CondBaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         num_attrs=40,
         z_dims = 128,
-        enc_activation='sigmoid',
-        dec_activation='sigmoid',
         name='cvae',
         **kwargs
     ):
-        super(CVAE, self).__init__(name=name, **kwargs)
+        super(CVAE, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
-        self.input_shape = input_shape
         self.num_attrs = num_attrs
         self.z_dims = z_dims
-        self.enc_activation = enc_activation
-        self.dec_activation = dec_activation
 
-        self.encoder = None
-        self.decoder = None
+        self.f_gen = None
+        self.f_dis = None
+        self.vae_trainer = None
 
         self.build_model()
 
-    def train_on_batch(self, x_batch):
-        x_image, x_attr = x_batch
+    def train_on_batch(self, batch):
+        x_real, c_real = batch
+        dummy = np.zeros_like(x_real)
 
-        loss = {}
-        loss['loss'] = self.trainer.train_on_batch([x_image, x_attr], x_image)
-        return loss
+        loss = self.vae_trainer.train_on_batch([x_real, c_real], dummy)
+        return { 'loss': loss }
 
     def predict(self, z_samples):
         return self.decoder.predict(z_samples)
 
     def build_model(self):
-        self.encoder = self.build_encoder()
-        self.decoder = self.build_decoder()
+        self.f_enc = self.build_encoder()
+        self.f_dec = self.build_decoder()
 
-        x_inputs = Input(shape=self.input_shape)
-        a_inputs = Input(shape=(self.num_attrs,))
+        x_real = Input(shape=self.input_shape)
+        c_real = Input(shape=(self.num_attrs,))
 
-        z_avg, z_log_var = self.encoder([x_inputs, a_inputs])
-        z = Lambda(draw_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
-        y = self.decoder([z, a_inputs])
+        z_avg, z_log_var = self.f_enc([x_real, c_real])
+        z = SampleNormal()([z_avg, z_log_var])
+        x_fake = self.f_dec([z, c_real])
 
-        self.trainer = Model([x_inputs, a_inputs], y)
-        self.trainer.compile(loss=self.variational_loss(x_inputs, y, z_avg, z_log_var),
-                             optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+        vae_loss = VAELossLayer()([x_real, x_fake, z_avg, z_log_var])
 
-        self.trainer.summary()
+        self.vae_trainer = Model(inputs=[x_real, c_real],
+                                 outputs=[vae_loss])
+        self.vae_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5))
+
+        self.vae_trainer.summary()
 
         # Store trainers
-        self.store_to_save('trianer')
+        self.store_to_save('vae_trainer')
 
     def build_encoder(self):
         x_inputs = Input(shape=self.input_shape)
-        a_inputs = Input(shape=(self.num_attrs,))
+        c_inputs = Input(shape=(self.num_attrs,))
 
-        a = Reshape((1, 1, self.num_attrs))(a_inputs)
-        a = UpSampling2D(size=self.input_shape[:2])(a)
-        x = Concatenate(axis=-1)([x_inputs, a])
+        c = Reshape((1, 1, self.num_attrs))(c_inputs)
+        c = UpSampling2D(size=self.input_shape[:2])(c)
+        x = Concatenate(axis=-1)([x_inputs, c])
 
-        x = self.basic_encoder_layer(x, filters=64)
-        x = self.basic_encoder_layer(x, filters=128)
-        x = self.basic_encoder_layer(x, filters=256)
-        x = self.basic_encoder_layer(x, filters=256)
+        x = BasicConvLayer(filters=64, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=128, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
 
         x = Flatten()(x)
         x = Dense(1024)(x)
@@ -89,57 +84,27 @@ class CVAE(CondBaseModel):
 
         z_avg = Dense(self.z_dims)(x)
         z_log_var = Dense(self.z_dims)(x)
-        z_avg = Activation(self.enc_activation)(z_avg)
-        z_log_var = Activation(self.enc_activation)(z_log_var)
+        z_avg = Activation('linear')(z_avg)
+        z_log_var = Activation('linear')(z_log_var)
 
-        return Model([x_inputs, a_inputs], [z_avg, z_log_var], name='encoder')
+        return Model(inputs=[x_inputs, c_inputs],
+                     outputs=[z_avg, z_log_var])
 
     def build_decoder(self):
-        x_inputs = Input(shape=(self.z_dims,))
-        a_inputs = Input(shape=(self.num_attrs,))
-        x = Concatenate()([x_inputs, a_inputs])
+        z_inputs = Input(shape=(self.z_dims,))
+        c_inputs = Input(shape=(self.num_attrs,))
+        z = Concatenate()([z_inputs, c_inputs])
 
-        x = Dense(4 * 4 * 256)(x)
+        w = self.input_shape[0] // (2 ** 3)
+        x = Dense(w * w * 256)(z)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 256))(x)
+        x = Reshape((w, w, 256))(x)
 
-        x = self.basic_decoder_layer(x, filters=256)
-        x = self.basic_decoder_layer(x, filters=128)
-        x = self.basic_decoder_layer(x, filters=64)
-        x = self.basic_decoder_layer(x, filters=3, activation=self.dec_activation)
+        x = BasicDeconvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=128, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=64, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=3, strides=(1, 1), bnorm=False, activation='tanh')(x)
 
-        return Model([x_inputs, a_inputs], x, name='decoder')
-
-    def basic_encoder_layer(self, x, filters, activation='relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5),
-                   strides=(2, 2), padding='same')(x)
-        x = BatchNormalization()(x)
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
-        else:
-            x = Activation(activation)(x)
-
-        return x
-
-    def basic_decoder_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
-        x = BatchNormalization()(x)
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
-        else:
-            x = Activation(activation)(x)
-
-        x = UpSampling2D(size=(2, 2))(x)
-        return x
-
-    def variational_loss(self, x_true, x_pred, z_avg, z_log_var):
-        def lossfun(y0, y1):
-            size = K.shape(x_true)[1:]
-            scale = K.cast(K.prod(size), 'float32')
-            entropy = K.mean(keras.metrics.binary_crossentropy(x_true, x_pred)) * scale
-            kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1))
-            return entropy + kl_loss
-
-        return lossfun
+        return Model([z_inputs, c_inputs], x)

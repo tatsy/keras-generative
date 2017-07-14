@@ -10,8 +10,9 @@ from keras.layers import Conv2D, Conv2DTranspose, UpSampling2D, BatchNormalizati
 from keras.optimizers import Adam
 from keras import backend as K
 
-from .utils import set_trainable
 from .cond_base import CondBaseModel
+from .layers import *
+from .utils import *
 
 def sample_normal(args):
     z_avg, z_log_var = args
@@ -31,7 +32,7 @@ class ClassifierLossLayer(Layer):
         super(ClassifierLossLayer, self).__init__(**kwargs)
 
     def lossfun(self, c_true, c_pred):
-        return K.mean(keras.metrics.binary_crossentropy(c_true, c_pred))
+        return K.mean(keras.metrics.categorical_crossentropy(c_true, c_pred))
 
     def call(self, inputs):
         c_true = inputs[0]
@@ -130,14 +131,14 @@ class KLLossLayer(Layer):
 
         return z_avg
 
-def discriminator_accuracy(x_r, x_p, x_f):
+def discriminator_accuracy(x_r, x_f, x_p):
     def accfun(y0, y1):
         x_pos = K.ones_like(x_r)
-        x_neg = K.ones_like(x_r)
+        x_neg = K.zeros_like(x_r)
         loss_r = K.mean(keras.metrics.binary_accuracy(x_pos, x_r))
-        loss_p = K.mean(keras.metrics.binary_accuracy(x_neg, x_p))
         loss_f = K.mean(keras.metrics.binary_accuracy(x_neg, x_f))
-        return (loss_r + loss_p + loss_f) / 3.0
+        loss_p = K.mean(keras.metrics.binary_accuracy(x_neg, x_p))
+        return (1.0 / 3.0) * (loss_r + loss_p + loss_f)
 
     return accfun
 
@@ -152,23 +153,17 @@ def generator_accuracy(x_p, x_f):
 
 class CVAEGAN(CondBaseModel):
     def __init__(self,
-        input_shape=(128, 128, 3),
+        input_shape=(64, 64, 3),
         num_attrs=40,
         z_dims = 128,
-        enc_activation='linear',
-        dec_activation='tanh',
-        dis_activation='sigmoid',
         name='cvaegan',
         **kwargs
     ):
-        super(CVAEGAN, self).__init__(name=name, **kwargs)
+        super(CVAEGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
         self.input_shape = input_shape
         self.num_attrs = num_attrs
         self.z_dims = z_dims
-        self.enc_activation = enc_activation
-        self.dec_activation = dec_activation
-        self.dis_activation = dis_activation
 
         self.f_enc = None
         self.f_dec = None
@@ -276,7 +271,7 @@ class CVAEGAN(CondBaseModel):
                                  outputs=[d_loss])
         self.dis_trainer.compile(loss=[zero_loss],
                                  optimizer=Adam(lr=2.0e-4, beta_1=0.5),
-                                 metrics=[discriminator_accuracy(y_r, y_p, y_f)])
+                                 metrics=[discriminator_accuracy(y_r, y_f, y_p)])
         self.dis_trainer.summary()
 
         # Build generator trainer
@@ -311,101 +306,78 @@ class CVAEGAN(CondBaseModel):
 
     def build_encoder(self, output_dims):
         x_inputs = Input(shape=self.input_shape)
-        a_inputs = Input(shape=(self.num_attrs,))
+        c_inputs = Input(shape=(self.num_attrs,))
 
-        a = Reshape((1, 1, self.num_attrs))(a_inputs)
-        a = UpSampling2D(size=self.input_shape[:2])(a)
-        x = Concatenate(axis=-1)([x_inputs, a])
+        c = Reshape((1, 1, self.num_attrs))(c_inputs)
+        c = UpSampling2D(size=self.input_shape[:2])(c)
+        x = Concatenate(axis=-1)([x_inputs, c])
 
-        x = self.basic_encode_layer(x, filters=128)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
-        x = self.basic_encode_layer(x, filters=512)
+        x = BasicConvLayer(filters=128, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=512, strides=(2, 2))(x)
 
         x = Flatten()(x)
         x = Dense(1024)(x)
         x = Activation('relu')(x)
 
         x = Dense(output_dims)(x)
-        x = Activation(self.enc_activation)(x)
+        x = Activation('linear')(x)
 
-        return Model([x_inputs, a_inputs], x, name='encoder')
+        return Model([x_inputs, c_inputs], x)
 
     def build_decoder(self):
-        x_inputs = Input(shape=(self.z_dims,))
-        a_inputs = Input(shape=(self.num_attrs,))
-        x = Concatenate()([x_inputs, a_inputs])
+        z_inputs = Input(shape=(self.z_dims,))
+        c_inputs = Input(shape=(self.num_attrs,))
+        z = Concatenate()([z_inputs, c_inputs])
 
-        x = Dense(2 * 2 * 512)(x)
+        w = self.input_shape[0] // (2 ** 4)
+        x = Dense(w * w * 512)(z)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((2, 2, 512))(x)
+        x = Reshape((w, w, 512))(x)
 
-        x = self.basic_decode_layer(x, filters=512)
-        x = self.basic_decode_layer(x, filters=512)
-        x = self.basic_decode_layer(x, filters=256)
-        x = self.basic_decode_layer(x, filters=256)
-        x = self.basic_decode_layer(x, filters=128)
-        x = self.basic_decode_layer(x, filters=3, activation=self.dec_activation)
+        x = BasicDeconvLayer(filters=512, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=128, strides=(2, 2))(x)
 
-        return Model([x_inputs, a_inputs], x, name='decoder')
+        d = self.input_shape[2]
+        x = BasicDeconvLayer(filters=d, strides=(1, 1), bnorm=False, activation='tanh')(x)
+
+        return Model([z_inputs, c_inputs], x)
 
     def build_discriminator(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encode_layer(inputs, filters=128)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
-        x = self.basic_encode_layer(x, filters=512)
+        x = BasicConvLayer(filters=128, strides=(2, 2))(inputs)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=512, strides=(2, 2))(x)
 
         f = Flatten()(x)
         x = Dense(1024)(f)
         x = Activation('relu')(x)
 
         x = Dense(1)(x)
-        x = Activation(self.dis_activation)(x)
+        x = Activation('sigmoid')(x)
 
         return Model(inputs, [x, f])
 
     def build_classifier(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encode_layer(inputs, filters=128)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=256)
-        x = self.basic_encode_layer(x, filters=512)
-        x = self.basic_encode_layer(x, filters=512)
+        x = BasicConvLayer(filters=128, strides=(2, 2))(inputs)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicConvLayer(filters=512, strides=(2, 2))(x)
 
         f = Flatten()(x)
         x = Dense(1024)(f)
         x = Activation('relu')(x)
 
         x = Dense(self.num_attrs)(x)
-        x = Activation(self.dis_activation)(x)
+        x = Activation('softmax')(x)
 
         return Model(inputs, [x, f])
-
-    def basic_encode_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5),
-                   strides=(2, 2), padding='same')(x)
-        x = BatchNormalization()(x)
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.1)(x)
-        else:
-            x = Activation(activation)(x)
-
-        return x
-
-    def basic_decode_layer(self, x, filters, activation='leaky_relu'):
-        x = Conv2DTranspose(filters=filters, kernel_size=(5, 5),
-                            strides=(2, 2), padding='same')(x)
-        x = BatchNormalization()(x)
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.1)(x)
-        else:
-            x = Activation(activation)(x)
-
-        return x

@@ -1,0 +1,34 @@
+language: python
+dist: trusty
+
+sudo: no
+
+python:
+  - "3.4"
+
+before_install:
+  - wget http://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b -p $HOME/miniconda
+  - export PATH="$HOME/miniconda/bin:$PATH"
+  - conda update --yes conda
+
+install:
+  - conda install --yes python=$TRAVIS_PYTHON_VERSION setuptools numpy scipy pillow matplotlib h5py
+  - conda install --yes -c dan_blanchard python-coveralls coverage=3.7.1
+  - pip install https://storage.googleapis.com/tensorflow/linux/cpu/tensorflow-1.2.1-cp34-cp34m-linux_x86_64.whl
+  - pip install keras
+
+script:
+  - make check
+
+branches:
+  only:
+    - master
+    - development
+
+notifications:
+  email:
+    recepients: tatsy.mail@gmail.com
+    on_success: change
+    on_failure: always
