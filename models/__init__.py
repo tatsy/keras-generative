@@ -2,6 +2,7 @@
 from .vae import VAE
 from .dcgan import DCGAN
 from .ebgan import EBGAN
+from .began import BEGAN
 from .ali import ALI
 
 # Conditional generative models

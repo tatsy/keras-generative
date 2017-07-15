@@ -1,4 +1,4 @@
-TARGETS      = vae dcgan ebgan
+TARGETS      = vae dcgan ebgan began
 
 define runtest
 $(1):

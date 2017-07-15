@@ -11,13 +11,14 @@ matplotlib.use('Agg')
 
 from keras.datasets import mnist
 
-from models import VAE, DCGAN, EBGAN, ALI
+from models import VAE, DCGAN, EBGAN, BEGAN, ALI
 from datasets import load_data
 
 models = {
     'vae': VAE,
     'dcgan': DCGAN,
     'ebgan': EBGAN,
+    'began': BEGAN,
     'ali': ALI
 }
 
