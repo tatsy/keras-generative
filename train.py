@@ -47,7 +47,7 @@ def main():
     # Load datasets
     if args.dataset == 'mnist':
         (datasets, _), _ = mnist.load_data()
-        datasets = np.pad(datasets, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0.0)
+        datasets = np.pad(datasets, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0)
         datasets = (datasets[:, :, :, np.newaxis] / 255.0).astype('float32')
     else:
         datasets = load_data(args.dataset)

@@ -13,28 +13,6 @@ from .base import BaseModel
 from .utils import *
 from .layers import *
 
-class VAELossLayer(Layer):
-    __name__ = 'vae_loss_layer'
-
-    def __init__(self, **kwargs):
-        self.is_placeholder = True
-        super(VAELossLayer, self).__init__(**kwargs)
-
-    def lossfun(self, x_true, x_pred, z_avg, z_log_var):
-        rec_loss = K.mean(K.square(x_true - x_pred))
-        kl_loss = K.mean(-0.5 * K.sum(1.0 + z_log_var - K.square(z_avg) - K.exp(z_log_var), axis=-1))
-        return rec_loss + kl_loss
-
-    def call(self, inputs):
-        x_true = inputs[0]
-        x_pred = inputs[1]
-        z_avg = inputs[2]
-        z_log_var = inputs[3]
-        loss = self.lossfun(x_true, x_pred, z_avg, z_log_var)
-        self.add_loss(loss, inputs=inputs)
-
-        return x_true
-
 class VAE(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),

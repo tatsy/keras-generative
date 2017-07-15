@@ -9,8 +9,11 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
+import keras
+from keras.datasets import mnist
+
 from models import CVAE, CVAEGAN, CALI, TripleGAN
-from datasets import load_data
+from datasets import load_data, ConditionalDataset
 
 models = {
     'cvae': CVAE,
@@ -31,6 +34,7 @@ def main():
     parser.add_argument('--zdims', type=int, default=256)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--testmode', action='store_true')
 
     args = parser.parse_args()
 
@@ -42,13 +46,28 @@ def main():
         os.mkdir(args.output)
 
     # Load datasets
-    datasets = load_data(args.dataset)
+    if args.dataset == 'mnist':
+        (images, attrs), _ = mnist.load_data()
+        images = np.pad(images, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0)
+        images = (images[:, :, :, np.newaxis] / 255.0).astype('float32')
+        attrs = keras.utils.to_categorical(attrs, 10).astype('float32')
+        datasets = ConditionalDataset()
+        datasets.images = images
+        datasets.attrs = attrs
+        datasets.attr_names = [str(i) for i in range(10)]
+    else:
+        datasets = load_data(args.dataset)
 
     # Construct model
     if args.model not in models:
         raise Exception('Unknown model:', args.model)
 
-    model = models[args.model](num_attrs=len(datasets.attr_names), z_dims=args.zdims, output=args.output)
+    model = models[args.model](
+        input_shape=datasets.images.shape[1:],
+        num_attrs=len(datasets.attr_names),
+        z_dims=args.zdims,
+        output=args.output
+    )
 
     if args.resume is not None:
         model.load_model(args.resume)
