@@ -1,4 +1,10 @@
+TARGETS      = vae dcgan ebgan
 
-test:
-	python train.py --model=vae --dataset=mnist --zdims=128 --epoch=1 --testmode
-	python train.py --model=dcgan --dataset=mnist --zdims=128 --epoch=1 --testmode
+define runtest
+$(1):
+	python train.py --model=$(1) --dataset=mnist --zdims=128 --epoch=1 --testmode
+endef
+
+check: $(TARGETS)
+
+$(foreach model,$(TARGETS), $(eval $(call runtest,$(model))))

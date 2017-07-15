@@ -20,7 +20,7 @@ install:
   - pip install keras
 
 script:
-  - make test
+  - make check
 
 branches:
   only:
