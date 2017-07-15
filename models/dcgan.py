@@ -2,6 +2,7 @@ import os
 import numpy as np
 
 import keras
+from keras.engine.topology import Layer
 from keras.models import Model
 from keras.layers import Input, Flatten, Dense, Lambda, Reshape
 from keras.layers import Activation, LeakyReLU, ELU
@@ -9,24 +10,89 @@ from keras.layers import Conv2D, UpSampling2D, BatchNormalization
 from keras.optimizers import Adam
 from keras import backend as K
 
-from .utils import set_trainable
 from .base import BaseModel
+from .utils import *
+from .layers import *
+
+class DiscriminatorLossLayer(Layer):
+    __name__ = 'discriminator_loss_layer'
+
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(DiscriminatorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_real, y_fake):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.zeros_like(y_fake)
+
+        loss_real = K.mean(keras.metrics.binary_crossentropy(y_pos, y_real))
+        loss_fake = K.mean(keras.metrics.binary_crossentropy(y_neg, y_fake))
+
+        return 0.5 * (loss_real + loss_fake)
+
+    def call(self, inputs):
+        y_real = inputs[0]
+        y_fake = inputs[1]
+
+        loss = self.lossfun(y_real, y_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_real
+
+class GeneratorLossLayer(Layer):
+    __name__ = 'generator_loss_layer'
+
+    def __init__(self, **kwargs):
+        self.is_placeholder = True
+        super(GeneratorLossLayer, self).__init__(**kwargs)
+
+    def lossfun(self, y_fake):
+        y_pos = K.ones_like(y_fake)
+
+        loss_fake = K.mean(keras.metrics.binary_crossentropy(y_pos, y_fake))
+
+        return loss_fake
+
+    def call(self, inputs):
+        y_fake = inputs[0]
+
+        loss = self.lossfun(y_fake)
+        self.add_loss(loss, inputs=inputs)
+
+        return y_fake
+
+def discriminator_accuracy(y_real, y_fake):
+    def accfun(y0, y1):
+        y_pos = K.ones_like(y_real)
+        y_neg = K.zeros_like(y_fake)
+
+        acc_real = K.mean(keras.metrics.binary_accuracy(y_pos, y_real))
+        acc_fake = K.mean(keras.metrics.binary_accuracy(y_neg, y_fake))
+
+        return 0.5 * (acc_real + acc_fake)
+
+    return accfun
+
+def generator_accuracy(y_fake):
+    def accfun(y0, y1):
+        y_pos = K.ones_like(y_fake)
+
+        acc_fake = K.mean(keras.metrics.binary_accuracy(y_pos, y_fake))
+
+        return acc_fake
+
+    return accfun
 
 class DCGAN(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
-        enc_activation='sigmoid',
-        dec_activation='sigmoid',
         name='dcgan',
         **kwargs
     ):
-        super(DCGAN, self).__init__(name=name, **kwargs)
+        super(DCGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
-        self.input_shape = input_shape
         self.z_dims = z_dims
-        self.enc_activation = enc_activation
-        self.dec_activation = dec_activation
 
         self.f_gen = None
         self.f_dis = None
@@ -37,21 +103,17 @@ class DCGAN(BaseModel):
 
     def train_on_batch(self, x_real):
         batchsize = len(x_real)
-        y_pos = np.ones(batchsize, dtype='float32')
-        y_neg = np.zeros(batchsize, dtype='float32')
+        dummy = np.zeros(batchsize, dtype='float32')
 
-        z_batch = np.random.uniform(-1.0, 1.0, size=(batchsize, self.z_dims)).astype(np.float32)
+        z_sample = np.random.uniform(-1.0, 1.0, size=(batchsize, self.z_dims))
+        z_sample = z_sample.astype('float32')
 
-        g_loss, g_acc = self.gen_trainer.train_on_batch(z_batch, y_pos)
-
-        x_fake = self.f_gen.predict_on_batch(z_batch)
-        d_loss_real, d_acc_real = self.dis_trainer.train_on_batch(x_real, y_pos)
-        d_loss_fake, d_acc_fake = self.dis_trainer.train_on_batch(x_fake, y_neg)
-        d_acc = 0.5 * (d_acc_real + d_acc_fake)
+        g_loss, g_acc = self.gen_trainer.train_on_batch([x_real, z_sample], dummy)
+        d_loss, d_acc = self.dis_trainer.train_on_batch([x_real, z_sample], dummy)
 
         loss = {
             'g_loss': g_loss,
-            'd_loss': 0.5 * (d_loss_fake + d_loss_real),
+            'd_loss': d_loss,
             'g_acc': g_acc,
             'd_acc': d_acc
         }
@@ -64,27 +126,39 @@ class DCGAN(BaseModel):
         self.f_gen = self.build_decoder()
         self.f_dis = self.build_encoder()
 
-        dis_input = Input(shape=self.input_shape)
-        y = self.f_dis(dis_input)
+        x_true = Input(shape=self.input_shape)
+        z_sample = Input(shape=(self.z_dims,))
 
-        self.dis_trainer = Model(dis_input, y)
-        self.dis_trainer.compile(loss=keras.losses.binary_crossentropy,
+        y_pred = self.f_dis(x_true)
+        x_fake = self.f_gen(z_sample)
+        y_fake = self.f_dis(x_fake)
+
+        d_loss = DiscriminatorLossLayer()([y_pred, y_fake])
+        g_loss = GeneratorLossLayer()([y_fake])
+
+        # Build discriminator trainer
+        set_trainable(self.f_gen, False)
+        set_trainable(self.f_dis, True)
+
+        self.dis_trainer = Model(inputs=[x_true, z_sample],
+                                 outputs=[d_loss])
+        self.dis_trainer.compile(loss=[zero_loss],
                                  optimizer=Adam(lr=1.0e-5, beta_1=0.5),
-                                 metrics=['accuracy'])
+                                 metrics=[discriminator_accuracy(y_pred, y_fake)])
 
+        self.dis_trainer.summary()
+
+        # Build generator trainer
+        set_trainable(self.f_gen, True)
         set_trainable(self.f_dis, False)
 
-        gen_input = Input(shape=(self.z_dims,))
-        x = self.f_gen(gen_input)
-        y_fake = self.f_dis(x)
-
-        self.gen_trainer = Model(gen_input, y_fake)
-        self.gen_trainer.compile(loss=keras.losses.binary_crossentropy,
-                                 optimizer=Adam(lr=1.0e-5, beta_1=0.5),
-                                 metrics=['accuracy'])
+        self.gen_trainer = Model(inputs=[x_true, z_sample],
+                                 outputs=[g_loss])
+        self.gen_trainer.compile(loss=[zero_loss],
+                                 optimizer=Adam(lr=2.0e-4, beta_1=0.5),
+                                 metrics=[generator_accuracy(y_fake)])
 
         self.gen_trainer.summary()
-        self.dis_trainer.summary()
 
         # Store trainers
         self.store_to_save('gen_trainer')
@@ -93,63 +167,34 @@ class DCGAN(BaseModel):
     def build_encoder(self):
         inputs = Input(shape=self.input_shape)
 
-        x = self.basic_encoder_layer(inputs, filters=64)
-        x = self.basic_encoder_layer(x, filters=128)
-        x = self.basic_encoder_layer(x, filters=256)
-        x = self.basic_encoder_layer(x, filters=256)
+        x = BasicConvLayer(filters=64, strides=(2, 2))(inputs)
+        x = BasicConvLayer(filters=128, strides=(2, 2))(inputs)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(inputs)
+        x = BasicConvLayer(filters=256, strides=(2, 2))(inputs)
 
         x = Flatten()(x)
         x = Dense(1024)(x)
         x = Activation('relu')(x)
 
         x = Dense(1)(x)
-        x = Activation(self.enc_activation)(x)
+        x = Activation('sigmoid')(x)
 
-        return Model(inputs, x, name='encoder')
+        return Model(inputs, x)
 
     def build_decoder(self):
         inputs = Input(shape=(self.z_dims,))
-        x = Dense(4 * 4 * 256)(inputs)
+        w = self.input_shape[0] // (2 ** 3)
+        x = Dense(w * w * 256)(inputs)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 256))(x)
+        x = Reshape((w, w, 256))(x)
 
-        x = self.basic_decoder_layer(x, filters=256)
-        x = self.basic_decoder_layer(x, filters=128)
-        x = self.basic_decoder_layer(x, filters=64)
-        x = self.basic_decoder_layer(x, filters=3, activation=self.dec_activation)
+        x = BasicDeconvLayer(filters=256, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=128, strides=(2, 2))(x)
+        x = BasicDeconvLayer(filters=64, strides=(2, 2))(x)
 
-        return Model(inputs, x, name='decoder')
+        d = self.input_shape[2]
+        x = BasicDeconvLayer(filters=d, strides=(1, 1), bnorm=False, activation='tanh')(x)
 
-    def basic_encoder_layer(self, x, filters, bn=False, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5),
-                   strides=(2, 2), padding='same')(x)
-
-        if bn:
-            x = BatchNormalization()(x)
-
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
-        elif activation == 'elu':
-            x = ELU()(x)
-        else:
-            x = Activation(activation)(x)
-
-        return x
-
-    def basic_decoder_layer(self, x, filters, bn=True, activation='leaky_relu'):
-        x = Conv2D(filters=filters, kernel_size=(5, 5), padding='same')(x)
-
-        if bn:
-            x = BatchNormalization()(x)
-
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.2)(x)
-        elif activation == 'elu':
-            x = ELU()(x)
-        else:
-            x = Activation(activation)(x)
-
-        x = UpSampling2D(size=(2, 2))(x)
-        return x
+        return Model(inputs, x)

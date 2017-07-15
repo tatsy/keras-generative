@@ -120,7 +120,7 @@ class BaseModel(metaclass=ABCMeta):
                     self.save_images(self, samples, outfile)
 
                 if self.test_mode:
-                    print('Finish testing: %s' % self.name)
+                    print('\nFinish testing: %s' % self.name)
                     return
 
             print('')
