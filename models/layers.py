@@ -16,6 +16,7 @@ def SampleNormal():
 def BasicConvLayer(
     filters,
     kernel_size=(5, 5),
+    padding='same',
     strides=(1, 1),
     bnorm=True,
     dropout=0.0,
@@ -35,7 +36,7 @@ def BasicConvLayer(
                    strides=strides,
                    kernel_initializer=kernel_init,
                    bias_initializer=bias_init,
-                   padding='same')(x)
+                   padding=padding)(x)
 
         if bnorm:
             x = BatchNormalization()(x)

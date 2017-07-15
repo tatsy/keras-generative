@@ -1,4 +1,4 @@
-TARGETS      = vae dcgan ebgan began
+TARGETS      = vae dcgan ebgan began ali
 
 define runtest
 $(1):
