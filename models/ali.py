@@ -10,96 +10,10 @@ from keras.layers import Conv2D, UpSampling2D, BatchNormalization, Dropout
 from keras.optimizers import Adam, Adadelta
 from keras import backend as K
 
-from .utils import set_trainable
 from .base import BaseModel
 
-def sample_normal(args):
-    z_avg, z_log_var = args
-    batch_size = K.shape(z_avg)[0]
-    z_dims = K.shape(z_avg)[1]
-    eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
-    return z_avg + K.exp(z_log_var / 2.0) * eps
-
-def zero_loss(y_true, y_pred):
-    return K.zeros_like(y_true)
-
-def BasicConvLayer(
-    filters,
-    kernel_size,
-    strides=(1, 1),
-    bn=False,
-    dropout=0.0,
-    activation='leaky_relu'):
-
-    def fun(inputs):
-        if dropout > 0.0:
-            x = Dropout(dropout)(inputs)
-        else:
-            x = inputs
-
-        kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
-        bias_init = keras.initializers.Zeros()
-
-        x = Conv2D(filters=filters,
-                   kernel_size=kernel_size,
-                   strides=strides,
-                   kernel_initializer=kernel_init,
-                   bias_initializer=bias_init)(x)
-
-        if bn:
-            x = BatchNormalization()(x)
-
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.02)(x)
-        elif activation == 'elu':
-            x = ELU()(x)
-        else:
-            x = Activation(activation)(x)
-
-        return x
-
-    return fun
-
-def BasicDeconvLayer(
-    filters,
-    kernel_size,
-    upsample=True,
-    bn=False,
-    dropout=0.0,
-    activation='leaky_relu'):
-
-    def fun(inputs):
-        if dropout > 0.0:
-            x = Dropout(dropout)(inputs)
-        else:
-            x = inputs
-
-        kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
-        bias_init = keras.initializers.Zeros()
-
-        x = Conv2D(filters=filters,
-                   kernel_size=kernel_size,
-                   kernel_initializer=kernel_init,
-                   bias_initializer=bias_init,
-                   padding='same')(x)
-
-        if bn:
-            x = BatchNormalization()(x)
-
-        if activation == 'leaky_relu':
-            x = LeakyReLU(0.02)(x)
-        elif activation == 'elu':
-            x = ELU()(x)
-        else:
-            x = Activation(activation)(x)
-
-        if upsample:
-            x = UpSampling2D(size=(2, 2))(x)
-
-        return x
-
-    return fun
-
+from .utils import *
+from .layers import *
 
 class DiscriminatorLossLayer(Layer):
     def __init__(self, **kwargs):
@@ -166,9 +80,8 @@ class ALI(BaseModel):
         name='ali',
         **kwargs
     ):
-        super(ALI, self).__init__(name=name, **kwargs)
+        super(ALI, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
-        self.input_shape = input_shape
         self.z_dims = z_dims
 
         self.f_Gz = None
@@ -219,11 +132,8 @@ class ALI(BaseModel):
         z_fake = Input(shape=(self.z_dims,))
 
         x_fake = self.f_Gx(z_fake)
-        z_params = self.f_Gz(x_real)
-
-        z_avg = Lambda(lambda x: x[:, :self.z_dims], output_shape=(self.z_dims,))(z_params)
-        z_log_var = Lambda(lambda x: x[:, self.z_dims:], output_shape=(self.z_dims,))(z_params)
-        z_real = Lambda(sample_normal, output_shape=(self.z_dims,))([z_avg, z_log_var])
+        z_avg, z_log_var = self.f_Gz(x_real)
+        z_real = SampleNormal()([z_avg, z_log_var])
 
         y_real = self.f_D([x_real, z_real])
         y_fake = self.f_D([x_fake, z_fake])
@@ -254,53 +164,65 @@ class ALI(BaseModel):
     def build_Gz(self):
         inputs = Input(shape=self.input_shape)
 
-        x = BasicConvLayer(filters=64, kernel_size=(2, 2), bn=True)(inputs)
-        x = BasicConvLayer(filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=512, kernel_size=(4, 4), bn=True)(x)
-        x = BasicConvLayer(filters=self.z_dims * 2, kernel_size=(1, 1), activation='tanh')(x)
+        x = BasicConvLayer(filters=128, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(inputs)
+        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicConvLayer(filters=512, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
 
         x = Flatten()(x)
+        z_avg = Dense(self.z_dims)(x)
+        z_log_var = Dense(self.z_dims)(x)
+        z_avg = Activation('linear')(z_avg)
+        z_log_var = Activation('linear')(z_log_var)
 
-        return Model(inputs, x, name='Gz')
+        return Model(inputs, [z_avg, z_log_var])
 
     def build_Gx(self):
         inputs = Input(shape=(self.z_dims,))
-
-        x = Dense(4 * 4 * 512)(inputs)
+        w = self.input_shape[0] // (2 ** 4)
+        x = Dense(w * w * 512)(inputs)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
-        x = Reshape((4, 4, 512))(x)
+        x = Reshape((w, w, 512))(x)
 
-        x = BasicDeconvLayer(filters=512, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=128, kernel_size=(5, 5), upsample=True, bn=True)(x)
-        x = BasicDeconvLayer(filters=3, kernel_size=(3, 3), upsample=False, activation='tanh')(x)
+        x = BasicDeconvLayer(filters=512, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicDeconvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicDeconvLayer(filters=128, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+
+        d = self.input_shape[2]
+        x = BasicDeconvLayer(filters=d, kernel_size=(3, 3), activation='tanh')(x)
 
         return Model(inputs, x)
 
     def build_D(self):
         x_inputs = Input(shape=self.input_shape)
 
-        x = BasicConvLayer(filters=64, kernel_size=(2, 2), bn=True)(x_inputs)
-        x = BasicConvLayer(filters=128, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=256, kernel_size=(7, 7), strides=(2, 2), bn=True)(x)
-        x = BasicConvLayer(filters=512, kernel_size=(4, 4), bn=True)(x)
+        x = BasicConvLayer(filters=128, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x_inputs)
+        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicConvLayer(filters=256, kernel_size=(5, 5), strides=(2, 2), bnorm=True)(x)
+        x = BasicConvLayer(filters=512, kernel_size=(3, 3), bnorm=True)(x)
+        x = Flatten()(x)
 
         z_inputs = Input(shape=(self.z_dims,))
         z = Reshape((1, 1, self.z_dims))(z_inputs)
         z = BasicConvLayer(filters=1024, kernel_size=(1, 1), dropout=0.2)(z)
         z = BasicConvLayer(filters=1024, kernel_size=(1, 1), dropout=0.2)(z)
+        z = Flatten()(z)
 
         xz = Concatenate(axis=-1)([x, z])
-        xz = BasicConvLayer(filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
-        xz = BasicConvLayer(filters=2048, kernel_size=(1, 1), dropout=0.2)(xz)
-        xz = BasicConvLayer(filters=1, kernel_size=(1, 1), dropout=0.2, activation='sigmoid')(xz)
+        xz = Dropout(0.2)(xz)
+        xz = Dense(2048)(xz)
+        xz = LeakyReLU(0.1)(xz)
 
-        xz = Flatten()(xz)
+        xz = Concatenate(axis=-1)([x, z])
+        xz = Dropout(0.2)(xz)
+        xz = Dense(2048)(xz)
+        xz = LeakyReLU(0.1)(xz)
+
+        xz = Dropout(0.2)(xz)
+        xz = Dense(1)(xz)
+        xz = Activation('sigmoid')(xz)
 
         return Model([x_inputs, z_inputs], xz)

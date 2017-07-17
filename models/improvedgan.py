@@ -46,17 +46,20 @@ class GeneratorLossLayer(Layer):
         self.is_placeholder = True
         super(GeneratorLossLayer, self).__init__(**kwargs)
 
-    def lossfun(self, y_fake):
+    def lossfun(self, y_fake, f_true, f_fake):
         y_pos = K.ones_like(y_fake)
 
-        loss_fake = K.mean(keras.metrics.binary_crossentropy(y_pos, y_fake))
+        ce_loss = K.mean(keras.metrics.binary_crossentropy(y_pos, y_fake))
+        fm_loss = K.mean(K.square(f_true - f_fake))
 
-        return loss_fake
+        return ce_loss + fm_loss
 
     def call(self, inputs):
         y_fake = inputs[0]
+        f_true = inputs[1]
+        f_fake = inputs[2]
 
-        loss = self.lossfun(y_fake)
+        loss = self.lossfun(y_fake, f_true, f_fake)
         self.add_loss(loss, inputs=inputs)
 
         return y_fake
@@ -83,14 +86,14 @@ def generator_accuracy(y_fake):
 
     return accfun
 
-class DCGAN(BaseModel):
+class ImprovedGAN(BaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims = 128,
-        name='dcgan',
+        name='improved_gan',
         **kwargs
     ):
-        super(DCGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
+        super(ImprovedGAN, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
         self.z_dims = z_dims
 
@@ -123,18 +126,18 @@ class DCGAN(BaseModel):
         return self.f_gen.predict(z_samples)
 
     def build_model(self):
-        self.f_gen = self.build_decoder()
-        self.f_dis = self.build_encoder()
+        self.f_gen = self.build_generator()
+        self.f_dis = self.build_discriminator()
 
         x_true = Input(shape=self.input_shape)
         z_sample = Input(shape=(self.z_dims,))
 
-        y_pred = self.f_dis(x_true)
+        y_pred, f_true = self.f_dis(x_true)
         x_fake = self.f_gen(z_sample)
-        y_fake = self.f_dis(x_fake)
+        y_fake, f_fake = self.f_dis(x_fake)
 
         d_loss = DiscriminatorLossLayer()([y_pred, y_fake])
-        g_loss = GeneratorLossLayer()([y_fake])
+        g_loss = GeneratorLossLayer()([y_fake, f_true, f_fake])
 
         # Build discriminator trainer
         set_trainable(self.f_gen, False)
@@ -164,7 +167,7 @@ class DCGAN(BaseModel):
         self.store_to_save('gen_trainer')
         self.store_to_save('dis_trainer')
 
-    def build_encoder(self):
+    def build_discriminator(self):
         inputs = Input(shape=self.input_shape)
 
         x = BasicConvLayer(filters=64, strides=(2, 2))(inputs)
@@ -174,14 +177,15 @@ class DCGAN(BaseModel):
 
         x = Flatten()(x)
         x = Dense(1024)(x)
-        x = Activation('relu')(x)
+        f = Activation('relu')(x)
 
+        x = MinibatchDiscrimination(kernels=50, dims=5)(f)
         x = Dense(1)(x)
         x = Activation('sigmoid')(x)
 
-        return Model(inputs, x)
+        return Model(inputs, [x, f])
 
-    def build_decoder(self):
+    def build_generator(self):
         inputs = Input(shape=(self.z_dims,))
         w = self.input_shape[0] // (2 ** 3)
         x = Dense(w * w * 256)(inputs)

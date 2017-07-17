@@ -10,7 +10,6 @@ from .base import BaseModel
 class CondBaseModel(BaseModel):
     def __init__(self, **kwargs):
         super(CondBaseModel, self).__init__(**kwargs)
-
         self.attr_names = None
 
     def main_loop(self, datasets, samples, attr_names, epochs=100, batchsize=100, reporter=[]):
@@ -19,10 +18,10 @@ class CondBaseModel(BaseModel):
 
     def make_batch(self, datasets, indx):
         images = datasets.images[indx]
-        attrs = datasets.attribs[indx]
+        attrs = datasets.attrs[indx]
         return images, attrs
 
-    def save_images(self, gen, samples, filename):
+    def save_images(self, samples, filename):
         assert self.attr_names is not None
 
         num_samples = len(samples)
@@ -32,12 +31,12 @@ class CondBaseModel(BaseModel):
         samples = np.tile(samples, (1, self.num_attrs))
         samples = samples.reshape((num_samples * self.num_attrs, -1))
 
-        imgs = gen.predict([samples, attrs]) * 0.5 + 0.5
+        imgs = self.predict([samples, attrs]) * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))
 
-        fig = plt.figure(figsize=(40, 10))
+        fig = plt.figure(figsize=(self.num_attrs, 10))
         grid = gridspec.GridSpec(num_samples, self.num_attrs, wspace=0.1, hspace=0.1)
         for i in range(num_samples * self.num_attrs):
             ax = plt.Subplot(fig, grid[i])
