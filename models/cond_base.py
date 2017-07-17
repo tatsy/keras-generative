@@ -21,7 +21,7 @@ class CondBaseModel(BaseModel):
         attrs = datasets.attrs[indx]
         return images, attrs
 
-    def save_images(self, gen, samples, filename):
+    def save_images(self, samples, filename):
         assert self.attr_names is not None
 
         num_samples = len(samples)
@@ -31,7 +31,7 @@ class CondBaseModel(BaseModel):
         samples = np.tile(samples, (1, self.num_attrs))
         samples = samples.reshape((num_samples * self.num_attrs, -1))
 
-        imgs = gen.predict([samples, attrs]) * 0.5 + 0.5
+        imgs = self.predict([samples, attrs]) * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))

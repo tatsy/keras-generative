@@ -117,7 +117,7 @@ class BaseModel(metaclass=ABCMeta):
                 # Save generated images
                 if (b + bsize) % 10000 == 0 or (b+ bsize) == num_data:
                     outfile = os.path.join(res_out_dir, 'epoch_%04d_batch_%d.png' % (e + 1, b + bsize))
-                    self.save_images(self, samples, outfile)
+                    self.save_images(samples, outfile)
 
                 if self.test_mode:
                     print('\nFinish testing: %s' % self.name)
@@ -134,11 +134,11 @@ class BaseModel(metaclass=ABCMeta):
         '''
         return datasets[indx]
 
-    def save_images(self, gen, samples, filename):
+    def save_images(self, samples, filename):
         '''
         Save images generated from random sample numbers
         '''
-        imgs = gen.predict(samples) * 0.5 + 0.5
+        imgs = self.predict(samples) * 0.5 + 0.5
         imgs = np.clip(imgs, 0.0, 1.0)
         if imgs.shape[3] == 1:
             imgs = np.squeeze(imgs, axis=(3,))
@@ -173,6 +173,14 @@ class BaseModel(metaclass=ABCMeta):
         for k, v in self.trainers.items():
             filename = os.path.join(folder, '%s.hdf5' % (k))
             getattr(self, k).load_weights(filename)
+
+    @abstractmethod
+    def predict(self, z_sample):
+        '''
+        Plase override "predict" method in the derived model!
+        '''
+        pass
+
 
     @abstractmethod
     def train_on_batch(self, x_batch):

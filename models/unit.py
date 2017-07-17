@@ -15,18 +15,9 @@ from keras.layers import Conv2D, UpSampling2D, BatchNormalization, Dropout
 from keras.optimizers import Adam, Adadelta
 from keras import backend as K
 
-from .base import BaseModel, set_trainable
+from .im2im_base import Im2imBaseModel
 from .layers import *
-
-def zero_loss(y_true, y_pred):
-    return K.zeros_like(y_true)
-
-def sample_normals(args):
-    z_avg, z_log_var = args
-    z_shape = K.shape(z_avg)
-
-    eps = K.random_normal(shape=z_shape, mean=0.0, stddev=1.0)
-    return z_avg + K.exp(z_log_var * 0.5) * eps
+from .utils import *
 
 class DiscriminatorLossLayer(Layer):
     def __init__(self, batchsize, **kwargs):
@@ -156,7 +147,7 @@ class GeneratorLossLayer(Layer):
 
         return x_fake1
 
-class UNIT(BaseModel):
+class UNIT(Im2imBaseModel):
     def __init__(self,
         input_shape=(64, 64, 3),
         z_dims=128,
@@ -165,9 +156,8 @@ class UNIT(BaseModel):
         name='unit',
         **kwargs
     ):
-        super(UNIT, self).__init__(name=name, **kwargs)
+        super(UNIT, self).__init__(input_shape=input_shape, name=name, **kwargs)
 
-        self.input_shape = input_shape
         self.z_dims = z_dims
         self.filters = filters
         self.batchsize = batchsize
@@ -204,11 +194,6 @@ class UNIT(BaseModel):
             'd_loss': 0.5 * (d_x_loss + d_y_loss)
         }
         return loss
-
-    def make_batch(self, datasets, indx):
-        x = datasets.x_datasets[indx]
-        y = datasets.y_datasets[indx]
-        return (x, y)
 
     def predict(self, x):
         return self.predict_x2y(x)
@@ -403,10 +388,10 @@ class UNIT(BaseModel):
         h4_avg = BasicConvLayer(filters=2048, kernel_size=(1, 1), strides=(1, 1), bnorm=False, activation='linear')(x)
         h4_log_var = BasicConvLayer(filters=2048, kernel_size=(1, 1), strides=(1, 1), bnorm=False, activation='softplus')(x)
 
-        z4 = Lambda(lambda z: sample_normals(z))([h4_avg, h4_log_var])
-        z3 = Lambda(lambda z: sample_normals(z))([h3_avg, h3_log_var])
-        z2 = Lambda(lambda z: sample_normals(z))([h2_avg, h2_log_var])
-        z1 = Lambda(lambda z: sample_normals(z))([h1_avg, h1_log_var])
+        z4 = SampleNormal()([h4_avg, h4_log_var])
+        z3 = SampleNormal()([h3_avg, h3_log_var])
+        z2 = SampleNormal()([h2_avg, h2_log_var])
+        z1 = SampleNormal()([h1_avg, h1_log_var])
 
         v_losses = VariationalLossLayer(self.batchsize)(
             [h1_avg, h1_log_var, h2_avg, h2_log_var,
@@ -461,23 +446,3 @@ class UNIT(BaseModel):
 
         return Model(inputs=[z1_input, z2_input, z3_input, z4_input],
                      outputs=[z1])
-
-    def save_images(self, gen, samples, filename):
-        imgs = gen.predict(samples) * 0.5 + 0.5
-        imgs = np.clip(imgs, 0.0, 1.0)
-
-        fig = plt.figure(figsize=(8, 8))
-        grid = gridspec.GridSpec(10, 10, wspace=0.1, hspace=0.1)
-        for i in range(50):
-            ax = plt.Subplot(fig, grid[i * 2 + 0])
-            ax.imshow(samples[i] * 0.5 + 0.5, interpolation='none', vmin=0.0, vmax=1.0)
-            ax.axis('off')
-            fig.add_subplot(ax)
-
-            ax = plt.Subplot(fig, grid[i * 2 + 1])
-            ax.imshow(imgs[i], interpolation='none', vmin=0.0, vmax=1.0)
-            ax.axis('off')
-            fig.add_subplot(ax)
-
-        fig.savefig(filename, dpi=200)
-        plt.close(fig)

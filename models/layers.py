@@ -14,7 +14,7 @@ class SampleNormal(Layer):
     def _sample_normal(self, z_avg, z_log_var):
         batch_size = K.shape(z_avg)[0]
         z_dims = K.shape(z_avg)[1]
-        eps = K.random_normal(shape=(batch_size, z_dims), mean=0.0, stddev=1.0)
+        eps = K.random_normal(shape=K.shape(z_avg), mean=0.0, stddev=1.0)
         return z_avg + K.exp(z_log_var / 2.0) * eps
 
     def call(self, inputs):

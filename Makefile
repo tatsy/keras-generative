@@ -1,6 +1,6 @@
 TARGETS          = vae dcgan ebgan began ali
-COND_TARGETS     = cvae cvaegan cali triplegan
-IM2IM_TARGETS    = cyclegan unit
+COND_TARGETS     = cvae cvaegan cali
+IM2IM_TARGETS    = unit
 OPTIONS          = --dataset=mnist --zdims=128 --epoch=1 --testmode
 OPTIONS_IM2IM    = --first-data=mnist --second-data=svhn --zdims=128 --epoch=1 --testmode
 

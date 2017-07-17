@@ -11,6 +11,7 @@ import numpy as np
 
 from models import *
 import datasets as dsets
+from datasets import PairwiseDataset
 
 models = {
     'cyclegan': CycleGAN,
@@ -48,15 +49,7 @@ def main():
     if not os.path.isdir(args.output):
         os.mkdir(args.output)
 
-    # Construct model
-    if args.model not in models:
-        raise Exception('Unknown model:', args.model)
-
-    model = models[args.model](z_dims=args.zdims, output=args.output)
-
-    if args.resume is not None:
-        model.load_model(args.resume)
-
+    # Load datasets
     x_data = load_data(args.first_data)
     x_data = x_data.images * 2.0 - 1.0
     y_data = load_data(args.second_data)
@@ -65,8 +58,22 @@ def main():
     datasets = PairwiseDataset(x_data, y_data)
     num_data = len(datasets)
 
-    x_samples = x_data[num_data:num_data+25]
-    y_samples = y_data[num_data:num_data+25]
+    # Construct model
+    if args.model not in models:
+        raise Exception('Unknown model:', args.model)
+
+    model = models[args.model](
+        input_shape=datasets.shape[1:],
+        z_dims=args.zdims,
+        output=args.output
+    )
+
+    if args.resume is not None:
+        model.load_model(args.resume)
+
+    # Make samples
+    x_samples = datasets.x_data[num_data:num_data+25]
+    y_samples = datasets.y_data[num_data:num_data+25]
     samples = (x_samples, y_samples)
 
     # Training loop

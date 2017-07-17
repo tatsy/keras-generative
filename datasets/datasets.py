@@ -14,6 +14,35 @@ class ConditionalDataset(Dataset):
         self.attrs = None
         self.attr_names = None
 
+class PairwiseDataset(object):
+    def __init__(self, x_data, y_data):
+        assert x_data.shape[1] == y_data.shape[1]
+        assert x_data.shape[2] == y_data.shape[2]
+        assert x_data.shape[3] == 1 or y_data.shape[3] == 1 or \
+               x_data.shape[3] == y_data.shape[3]
+
+        if x_data.shape[3] != y_data.shape[3]:
+            d = max(x_data.shape[3], y_data.shape[3])
+            if x_data.shape[3] != d:
+                x_data = np.tile(x_data, [1, 1, 1, d])
+            if y_data.shape[3] != d:
+                y_Data = np.tile(y_data, [1, 1, 1, d])
+
+        x_len = len(x_data)
+        y_len = len(y_data)
+        l = min(x_len, y_len)
+
+        self.x_data = x_data[:l]
+        self.y_data = y_data[:l]
+
+    def __len__(self):
+        return len(self.x_data)
+
+    def _get_shape(self):
+        return self.x_data.shape
+
+    shape = property(_get_shape)
+
 def load_data(filename, size=-1):
     f = h5py.File(filename)
 
@@ -27,14 +56,3 @@ def load_data(filename, size=-1):
         dset.attrs = dset.attrs[:size]
 
     return dset
-
-class PairwiseDataset(object):
-    def __init__(self, x_data, y_data):
-        x_len = len(x_data)
-        y_len = len(y_data)
-        l = min(x_len, y_len)
-        self.x_datasets = x_data[:l]
-        self.y_datasets = y_data[:l]
-
-    def __len__(self):
-        return len(self.x_datasets)
