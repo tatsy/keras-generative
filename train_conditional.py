@@ -9,11 +9,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-import keras
-from keras.datasets import mnist
-
 from models import CVAE, CVAEGAN, CALI, TripleGAN
-from datasets import load_data, ConditionalDataset
+from datasets import load_data, mnist, svhn
 
 models = {
     'cvae': CVAE,
@@ -47,14 +44,9 @@ def main():
 
     # Load datasets
     if args.dataset == 'mnist':
-        (images, attrs), _ = mnist.load_data()
-        images = np.pad(images, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0)
-        images = (images[:, :, :, np.newaxis] / 255.0).astype('float32')
-        attrs = keras.utils.to_categorical(attrs, 10).astype('float32')
-        datasets = ConditionalDataset()
-        datasets.images = images
-        datasets.attrs = attrs
-        datasets.attr_names = [str(i) for i in range(10)]
+        datasets = mnist.load_data()
+    elif args.dataset == 'svhn':
+        datasets = svhn.load_data()
     else:
         datasets = load_data(args.dataset)
 

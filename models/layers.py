@@ -32,11 +32,6 @@ def BasicConvLayer(
     activation='leaky_relu'):
 
     def fun(inputs):
-        if dropout > 0.0:
-            x = Dropout(dropout)(inputs)
-        else:
-            x = inputs
-
         kernel_init = keras.initializers.RandomNormal(mean=0.0, stddev=0.01)
         bias_init = keras.initializers.Zeros()
 
@@ -45,7 +40,7 @@ def BasicConvLayer(
                    strides=strides,
                    kernel_initializer=kernel_init,
                    bias_initializer=bias_init,
-                   padding=padding)(x)
+                   padding=padding)(inputs)
 
         if bnorm:
             x = BatchNormalization()(x)
@@ -57,6 +52,9 @@ def BasicConvLayer(
         else:
             x = Activation(activation)(x)
 
+        if dropout > 0.0:
+            x = Dropout(dropout)(x)
+
         return x
 
     return fun
@@ -64,6 +62,7 @@ def BasicConvLayer(
 def BasicDeconvLayer(
     filters,
     kernel_size=(5, 5),
+    padding='same',
     strides=(1, 1),
     bnorm=True,
     dropout=0.0,
@@ -83,7 +82,7 @@ def BasicDeconvLayer(
                             strides=strides,
                             kernel_initializer=kernel_init,
                             bias_initializer=bias_init,
-                            padding='same')(x)
+                            padding=padding)(x)
 
         if bnorm:
             x = BatchNormalization()(x)

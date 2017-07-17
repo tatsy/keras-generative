@@ -9,10 +9,8 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-from keras.datasets import mnist
-
 from models import VAE, DCGAN, EBGAN, BEGAN, ALI
-from datasets import load_data
+from datasets import load_data, mnist
 
 models = {
     'vae': VAE,
@@ -46,9 +44,9 @@ def main():
 
     # Load datasets
     if args.dataset == 'mnist':
-        (datasets, _), _ = mnist.load_data()
-        datasets = np.pad(datasets, ((0, 0), (2, 2), (2, 2)), 'constant', constant_values=0)
-        datasets = (datasets[:, :, :, np.newaxis] / 255.0).astype('float32')
+        datasets = mnist.load_data()
+    elif args.dataset == 'svhn':
+        datasets = svhn.load_data()
     else:
         datasets = load_data(args.dataset)
 
@@ -69,7 +67,7 @@ def main():
         model.load_model(args.resume)
 
     # Training loop
-    datasets = datasets * 2.0 - 1.0
+    datasets = datasets.images * 2.0 - 1.0
     samples = np.random.normal(size=(100, args.zdims)).astype(np.float32)
     model.main_loop(datasets, samples,
         epochs=args.epoch,

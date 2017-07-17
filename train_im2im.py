@@ -12,6 +12,9 @@ import numpy as np
 from models import *
 from datasets import *
 
+svhn.load_data()
+sys.exit(0)
+
 models = {
     'cycle_gan': CycleGAN,
     'unit': UNIT
