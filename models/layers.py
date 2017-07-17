@@ -22,6 +22,35 @@ class SampleNormal(Layer):
         z_log_var = inputs[1]
         return self._sample_normal(z_avg, z_log_var)
 
+class MinibatchDiscrimination(Layer):
+    __name__ = 'minibatch_discrimination'
+
+    def __init__(self, kernels=50, dims=5, **kwargs):
+        super(MinibatchDiscrimination, self).__init__(**kwargs)
+        self.kernels = kernels
+        self.dims = dims
+
+    def build(self, input_shape):
+        assert len(input_shape) == 2
+        self.W = self.add_weight(name='kernel',
+                                 shape=(input_shape[1], self.kernels * self.dims),
+                                 initializer='uniform',
+                                 trainable=True)
+
+    def call(self, inputs):
+        Ms = K.dot(inputs, self.W)
+        Ms = K.reshape(Ms, (-1, self.kernels, self.dims))
+        x_i = K.reshape(Ms, (-1, self.kernels, 1, self.dims))
+        x_j = K.reshape(Ms, (-1, 1, self.kernels, self.dims))
+        x_i = K.repeat_elements(x_i, self.kernels, 2)
+        x_j = K.repeat_elements(x_j, self.kernels, 1)
+        norm = K.sum(K.abs(x_i - x_j), axis=3)
+        Os = K.sum(K.exp(-norm), axis=2)
+        return Os
+
+    def compute_output_shape(self, input_shape):
+        return (input_shape[0], self.kernels)
+
 def BasicConvLayer(
     filters,
     kernel_size=(5, 5),

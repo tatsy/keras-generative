@@ -9,12 +9,13 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 
-from models import VAE, DCGAN, EBGAN, BEGAN, ALI
+from models import VAE, DCGAN, ImprovedGAN, EBGAN, BEGAN, ALI
 from datasets import load_data, mnist
 
 models = {
     'vae': VAE,
     'dcgan': DCGAN,
+    'improvedgan': ImprovedGAN,
     'ebgan': EBGAN,
     'began': BEGAN,
     'ali': ALI

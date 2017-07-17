@@ -8,6 +8,11 @@ class Dataset(object):
     def __len__(self):
         return len(self.images)
 
+    def _get_shape(self):
+        return self.images.shape
+
+    shape = property(_get_shape)
+
 class ConditionalDataset(Dataset):
     def __init__(self):
         super(ConditionalDataset, self).__init__()

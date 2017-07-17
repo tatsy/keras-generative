@@ -1,6 +1,7 @@
 # Ordinary generative models
 from .vae import VAE
 from .dcgan import DCGAN
+from .improvedgan import ImprovedGAN
 from .ebgan import EBGAN
 from .began import BEGAN
 from .ali import ALI
