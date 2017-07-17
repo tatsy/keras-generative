@@ -10,35 +10,34 @@ matplotlib.use('Agg')
 import numpy as np
 
 from models import *
-from datasets import *
-
-svhn.load_data()
-sys.exit(0)
+import datasets as dsets
 
 models = {
-    'cycle_gan': CycleGAN,
+    'cyclegan': CycleGAN,
     'unit': UNIT
 }
 
-class PairwiseDataset(object):
-    def __init__(self):
-        self.x_datasets = None
-        self.y_datasets = None
-
-    def __len__(self):
-        return len(self.x_datasets)
+def load_data(data_type):
+    if data_type == 'mnist':
+        return dsets.mnist.load_data()
+    elif data_type == 'svhn':
+        return dsets.svhn.load_data()
+    else:
+        return dsets.load_data(data_type)
 
 def main():
     # Parsing arguments
     parser = argparse.ArgumentParser(description='Training GANs or VAEs')
     parser.add_argument('--model', type=str, required=True)
-    parser.add_argument('--datasets', type=str, required=True)
+    parser.add_argument('--first-data', type=str, required=True)
+    parser.add_argument('--second-data', type=str, required=True)
     parser.add_argument('--epoch', type=int, default=500)
     parser.add_argument('--batchsize', type=int, default=50)
     parser.add_argument('--output', default='output')
     parser.add_argument('--zdims', type=int, default=128)
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--resume', type=str, default=None)
+    parser.add_argument('--testmode', action='store_true')
 
     args = parser.parse_args()
 
@@ -58,22 +57,17 @@ def main():
     if args.resume is not None:
         model.load_model(args.resume)
 
-    x_datafile = os.path.join(args.datasets, 'celebA.hdf5')
-    x_datasets = load_data(x_datafile).images
-    x_datasets = x_datasets * 2.0 - 1.0
-    x_num_data = len(x_datasets)
+    x_data = load_data(args.first_data)
+    x_data = x_data.images * 2.0 - 1.0
+    y_data = load_data(args.second_data)
+    y_data = y_data.images * 2.0 - 1.0
 
-    y_datafile = os.path.join(args.datasets, 'animeface.hdf5')
-    y_datasets = load_data(y_datafile).images
-    y_datasets = y_datasets * 2.0 - 1.0
-    y_num_data = len(y_datasets)
+    datasets = PairwiseDataset(x_data, y_data)
+    num_data = len(datasets)
 
-    datasets = PairwiseDataset()
-    num_data = min(x_num_data, y_num_data)
-    datasets.x_datasets = x_datasets[:num_data]
-    datasets.y_datasets = y_datasets[:num_data]
-
-    samples = x_datasets[num_data:num_data+50]
+    x_samples = x_data[num_data:num_data+25]
+    y_samples = y_data[num_data:num_data+25]
+    samples = (x_samples, y_samples)
 
     # Training loop
     model.main_loop(datasets, samples,

@@ -27,3 +27,14 @@ def load_data(filename, size=-1):
         dset.attrs = dset.attrs[:size]
 
     return dset
+
+class PairwiseDataset(object):
+    def __init__(self, x_data, y_data):
+        x_len = len(x_data)
+        y_len = len(y_data)
+        l = min(x_len, y_len)
+        self.x_datasets = x_data[:l]
+        self.y_datasets = y_data[:l]
+
+    def __len__(self):
+        return len(self.x_datasets)
